@@ -45,14 +45,22 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
     # FastMCP 3.x: transport kwargs go on http_app(), not the constructor.
     mcp_app = mcp.http_app(path="/", json_response=True, stateless_http=True)
 
+    # Shared app-scoped engine — one per app instance, reused across requests.
+    engine = make_engine(settings.effective_database_url())
+
     # Propagate FastMCP's lifespan to FastAPI so the session manager starts.
     # Without this, /mcp returns 500 ("task group not initialized").
+    # Engine is disposed on shutdown alongside the MCP lifespan.
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with mcp_app.router.lifespan_context(mcp_app):
-            yield
+        try:
+            async with mcp_app.router.lifespan_context(mcp_app):
+                yield
+        finally:
+            await engine.dispose()
 
     app = FastAPI(title="brain", lifespan=lifespan)
+    app.state.engine = engine
 
     # Auth: x-brain-key header or ?key= query param; allowlist paths bypass it.
     app.add_middleware(
@@ -76,15 +84,12 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
     @app.get("/api/health")
     async def health() -> Response:
         """DB-aware health check.  In allowlist → no auth required."""
-        engine = make_engine(settings.effective_database_url())
         try:
             async with engine.begin() as conn:
                 await conn.execute(sqlalchemy.text("SELECT 1"))
             status, code = "ok", 200
         except Exception:
             status, code = "degraded", 503
-        finally:
-            await engine.dispose()
         return Response(
             content=json.dumps({"status": status}),
             status_code=code,
@@ -92,12 +97,3 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
         )
 
     return app
-
-
-# Module-level app for uvicorn: `uvicorn src.core.app:app`.
-# Guarded so that `from src.core.app import create_app` works in test
-# environments where ambient env vars are absent.
-try:
-    app: FastAPI = create_app()
-except Exception:
-    pass  # Tests call create_app() directly with a stub brain.
