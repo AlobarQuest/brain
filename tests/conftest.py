@@ -27,9 +27,14 @@ _BRAIN_ENV_VARS = [
 def clear_brain_env(monkeypatch):
     """Scrub brain env vars and Settings cache before (and after) every test."""
     from src.core.config import get_settings
+    from src.core.db import get_engine, get_session_factory
 
     for var in _BRAIN_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     get_settings.cache_clear()
+    get_engine.cache_clear()
+    get_session_factory.cache_clear()
     yield
     get_settings.cache_clear()
+    get_engine.cache_clear()
+    get_session_factory.cache_clear()
