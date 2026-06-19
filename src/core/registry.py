@@ -17,4 +17,6 @@ def load_brain(brain_type) -> BrainModule:
     try:
         return importlib.import_module(f"src.brains.{brain_type.value}")
     except ModuleNotFoundError as e:
+        if e.name != f"src.brains.{brain_type.value}":
+            raise  # a real brain exists but its own import failed — surface it
         raise ValueError(f"unknown brain: {brain_type.value}") from e
