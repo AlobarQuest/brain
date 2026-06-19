@@ -1,12 +1,15 @@
 import subprocess
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
 
 
 def test_start_sh_valid_syntax():
     """Test that start.sh has valid shell syntax."""
     result = subprocess.run(
         ["sh", "-n", "scripts/start.sh"],
-        cwd="/Users/devon/Projects/brain",
+        cwd=str(PROJECT_ROOT),
         capture_output=True,
     )
     assert result.returncode == 0, f"Syntax check failed: {result.stderr.decode()}"
@@ -19,7 +22,7 @@ def test_start_sh_unset_brain_type():
 
     result = subprocess.run(
         ["sh", "scripts/start.sh"],
-        cwd="/Users/devon/Projects/brain",
+        cwd=str(PROJECT_ROOT),
         env=env,
         capture_output=True,
     )
@@ -33,7 +36,7 @@ def test_start_sh_bogus_brain_type():
 
     result = subprocess.run(
         ["sh", "scripts/start.sh"],
-        cwd="/Users/devon/Projects/brain",
+        cwd=str(PROJECT_ROOT),
         env=env,
         capture_output=True,
     )

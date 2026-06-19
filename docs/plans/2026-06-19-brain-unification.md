@@ -329,7 +329,7 @@ if [ -f "${BRAIN_DIR}/seed.py" ]; then
   python -m "src.brains.${BRAIN_TYPE}.seed" --skip-existing
 fi
 
-exec uvicorn src.core.app:app --host 0.0.0.0 --port "${PORT:-8000}"
+exec uvicorn src.core.app:create_app --factory --host 0.0.0.0 --port "${PORT:-8000}"
 ```
 
 - [ ] **Step 2: Test** `tests/test_start_sh.py` — `sh -n scripts/start.sh` exits 0; `BRAIN_TYPE` unset → non-zero; `BRAIN_TYPE=bogus` → non-zero (assert it fails before reaching alembic/uvicorn).
