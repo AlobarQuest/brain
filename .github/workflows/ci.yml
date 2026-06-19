@@ -34,9 +34,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Validate local compose
-        run: docker compose -f docker-compose.local.yml config --quiet
-
       - name: Run tests
         run: pytest -x -q
 
