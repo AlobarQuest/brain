@@ -5,6 +5,10 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.12-slim
 WORKDIR /app
+# curl is needed for Coolify's injected health probe (it overrides the Dockerfile
+# HEALTHCHECK with a curl/wget call against the configured /api/health path).
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
 COPY . .
 RUN useradd -m appuser && chown -R appuser /app
