@@ -15,9 +15,9 @@ from src.core.registry import Capabilities, load_brain
 def test_app_capabilities():
     brain = load_brain(BrainType.APP)
     assert brain.capabilities.embeddings is True
-    assert "/register" in brain.capabilities.auth_allowlist
-    assert "/.well-known" in brain.capabilities.auth_allowlist
-    assert "/api/health" in brain.capabilities.auth_allowlist
+    assert "/register" in brain.capabilities.auth_exact
+    assert "/api/health" in brain.capabilities.auth_exact
+    assert "/.well-known/" in brain.capabilities.auth_prefixes
 
 
 def test_app_capabilities_is_correct_type():
@@ -174,3 +174,48 @@ async def test_capture_knowledge_uses_embed(monkeypatch):
     )
 
     assert not result.is_error
+
+
+# ---------------------------------------------------------------------------
+# startup() hook — reconciles stale-running onboards
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_startup_calls_fail_stale_running(monkeypatch):
+    """app_brain.startup() must call AppRepository.fail_stale_running() and commit."""
+    import src.core.db as db_module
+    import src.brains.app.repositories.apps as apps_repo_module
+
+    calls: list[str] = []
+
+    class _FakeAppRepo:
+        def __init__(self, session):
+            pass
+
+        async def fail_stale_running(self) -> int:
+            calls.append("fail_stale_running")
+            return 0
+
+    class _FakeSession:
+        async def commit(self):
+            calls.append("commit")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    class _FakeSessionFactory:
+        def __call__(self):
+            return _FakeSession()
+
+    # startup() uses local imports; patch the modules those names resolve to.
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: _FakeSessionFactory())
+    monkeypatch.setattr(apps_repo_module, "AppRepository", _FakeAppRepo)
+
+    import src.brains.app as app_brain_module
+    await app_brain_module.startup()
+
+    assert "fail_stale_running" in calls, "startup() did not call fail_stale_running()"
+    assert "commit" in calls, "startup() did not call session.commit()"

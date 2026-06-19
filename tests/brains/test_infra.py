@@ -15,7 +15,8 @@ from src.core.registry import Capabilities, load_brain
 def test_infra_capabilities():
     brain = load_brain(BrainType.INFRA)
     assert brain.capabilities.embeddings is False
-    assert brain.capabilities.auth_allowlist == ("/api/health",)
+    assert brain.capabilities.auth_exact == ("/api/health",)
+    assert brain.capabilities.auth_prefixes == ()
 
 
 def test_infra_capabilities_is_correct_type():

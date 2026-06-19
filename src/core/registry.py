@@ -6,7 +6,8 @@ from src.core.config import BrainType
 @dataclass(frozen=True)
 class Capabilities:
     embeddings: bool = False
-    auth_allowlist: tuple[str, ...] = ("/api/health",)
+    auth_exact: tuple[str, ...] = ("/api/health",)
+    auth_prefixes: tuple[str, ...] = ()
 
 @runtime_checkable
 class BrainModule(Protocol):

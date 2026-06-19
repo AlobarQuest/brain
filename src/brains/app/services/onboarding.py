@@ -3,6 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from src.core.config import get_settings
 from src.core.db import get_session_factory
 from src.brains.app.repositories.apps import AppRepository
 from src.brains.app.repositories.knowledge import KnowledgeRepository
@@ -12,9 +13,6 @@ from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.openrouter import embed, extract_metadata
 
 logger = logging.getLogger("app_brain.onboarding")
-
-# Default concurrency for background onboarding jobs (matches original app-brain default).
-ONBOARD_CONCURRENCY = 6
 
 
 async def _process_chunk(blob_name: str, chunk_content: str, sem: asyncio.Semaphore) -> dict:
@@ -46,7 +44,7 @@ async def run_onboarding_job(
     Owns its own DB session. Always lands the app's onboarding_status in a terminal
     state. Returns a summary dict (used by tests; the scheduler ignores it).
     """
-    sem = asyncio.Semaphore(ONBOARD_CONCURRENCY)
+    sem = asyncio.Semaphore(get_settings().onboard_concurrency)
 
     total_chunks = 0
     total_skipped = 0

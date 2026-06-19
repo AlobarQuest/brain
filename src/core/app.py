@@ -55,6 +55,8 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         try:
             async with mcp_app.router.lifespan_context(mcp_app):
+                if hasattr(brain, "startup"):
+                    await brain.startup()
                 yield
         finally:
             await engine.dispose()
@@ -64,7 +66,11 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
 
     # Auth: x-brain-key header or ?key= query param; allowlist paths bypass it.
     app.add_middleware(
-        make_auth_middleware(settings.mcp_access_key, brain.capabilities.auth_allowlist)
+        make_auth_middleware(
+            settings.mcp_access_key,
+            brain.capabilities.auth_exact,
+            brain.capabilities.auth_prefixes,
+        )
     )
 
     # Mount the MCP subtree at /mcp/ (handles /mcp/... requests).

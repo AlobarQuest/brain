@@ -7,12 +7,12 @@ from fastapi import FastAPI
 from src.core.auth import make_auth_middleware
 
 KEY = "a" * 64
-ALLOWLIST = ("/api/health",)
+EXACT = ("/api/health",)
 
 
 def build_app() -> FastAPI:
     app = FastAPI()
-    app.add_middleware(make_auth_middleware(KEY, ALLOWLIST))
+    app.add_middleware(make_auth_middleware(KEY, exact=EXACT))
 
     @app.get("/api/health")
     async def health():
@@ -77,16 +77,42 @@ async def test_wrong_key_returns_401(app):
 
 
 @pytest.mark.asyncio
-async def test_allowlist_is_prefix_match():
-    """Paths starting with /api/health (e.g. /api/health/check) also pass through."""
-    extended_app = build_app()
+async def test_exact_match_does_not_exempt_subpath():
+    """EXACT semantics: /register exempt, /register/foo must return 401."""
+    exact_app = FastAPI()
+    exact_app.add_middleware(make_auth_middleware(KEY, exact=("/register",), prefixes=()))
 
-    @extended_app.get("/api/health/check")
-    async def health_check():
-        return {"status": "ok"}
+    @exact_app.get("/register")
+    async def reg():
+        return {"ok": True}
+
+    @exact_app.get("/register/foo")
+    async def reg_foo():
+        return {"ok": True}
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=extended_app), base_url="http://testserver"
+        transport=httpx.ASGITransport(app=exact_app), base_url="http://testserver"
     ) as client:
-        resp = await client.get("/api/health/check")
-    assert resp.status_code == 200
+        resp_exact = await client.get("/register")
+        resp_sub = await client.get("/register/foo")
+
+    assert resp_exact.status_code == 200, "/register should be exempt"
+    assert resp_sub.status_code == 401, "/register/foo must NOT be exempt under exact matching"
+
+
+@pytest.mark.asyncio
+async def test_prefix_match_exempts_subpath():
+    """PREFIX semantics: /.well-known/ in prefixes exempts /.well-known/x."""
+    prefix_app = FastAPI()
+    prefix_app.add_middleware(make_auth_middleware(KEY, exact=(), prefixes=("/.well-known/",)))
+
+    @prefix_app.get("/.well-known/jwks.json")
+    async def jwks():
+        return {"keys": []}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=prefix_app), base_url="http://testserver"
+    ) as client:
+        resp = await client.get("/.well-known/jwks.json")
+
+    assert resp.status_code == 200, "/.well-known/jwks.json should be exempt via prefix"

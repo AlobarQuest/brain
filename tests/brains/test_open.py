@@ -13,7 +13,8 @@ from src.core.registry import Capabilities, load_brain
 def test_open_capabilities():
     brain = load_brain(BrainType.OPEN)
     assert brain.capabilities.embeddings is True
-    assert brain.capabilities.auth_allowlist == ("/api/health",)
+    assert brain.capabilities.auth_exact == ("/api/health",)
+    assert brain.capabilities.auth_prefixes == ()
 
 
 def test_open_capabilities_is_correct_type():

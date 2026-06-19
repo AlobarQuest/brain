@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     postgres_db: str
     openrouter_api_key: str | None = None
     database_url: str | None = None
+    onboard_concurrency: int = 6
 
     @field_validator("mcp_access_key")
     @classmethod

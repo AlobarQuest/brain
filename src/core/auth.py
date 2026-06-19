@@ -22,14 +22,17 @@ from starlette.types import ASGIApp
 
 def make_auth_middleware(
     access_key: str,
-    allowlist: tuple[str, ...],
+    exact: tuple[str, ...] = ("/api/health",),
+    prefixes: tuple[str, ...] = (),
 ) -> type[BaseHTTPMiddleware]:
     """Return a configured auth-middleware class ready for ``app.add_middleware()``.
 
     Args:
         access_key: The expected secret value (compared via ``hmac.compare_digest``).
-        allowlist:  Tuple of path prefixes that bypass authentication entirely.
-                    A request whose ``path`` starts with *any* entry passes through.
+        exact:      Tuple of paths that bypass authentication via EXACT match only.
+                    ``/register`` in ``exact`` exempts ``/register`` but NOT ``/register/foo``.
+        prefixes:   Tuple of path prefixes that bypass authentication via startswith.
+                    ``/.well-known/`` in ``prefixes`` exempts any path starting with that string.
 
     Returns:
         A ``BaseHTTPMiddleware`` subclass (not an instance) so that
@@ -38,10 +41,13 @@ def make_auth_middleware(
 
     class BrainKeyMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next: Callable) -> Response:
-            # Prefix-match against every allowlisted path.
-            for prefix in allowlist:
-                if request.url.path.startswith(prefix):
-                    return await call_next(request)
+            path = request.url.path
+            # Exact match first.
+            if path in exact:
+                return await call_next(request)
+            # Then prefix match.
+            if any(path.startswith(p) for p in prefixes):
+                return await call_next(request)
 
             provided = request.headers.get("x-brain-key") or request.query_params.get("key")
             if not provided or not hmac.compare_digest(provided, access_key):
