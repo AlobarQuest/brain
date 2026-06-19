@@ -56,6 +56,8 @@ def register_thought_tools(mcp: FastMCP) -> None:
         """Save a new thought to the Open Brain. Generates an embedding and extracts metadata automatically. Use this when the user wants to save something to their brain directly from any AI client — notes, insights, decisions, or migrated content from other systems."""
         settings = get_settings()
         client = get_embeddings_client(settings)
+        if client is None:
+            raise RuntimeError("openrouter_api_key is required for the open brain")
 
         embedding, metadata = await asyncio.gather(
             client.embed(content),
@@ -91,6 +93,8 @@ def register_thought_tools(mcp: FastMCP) -> None:
         limit = max(1, min(limit, 50))
         settings = get_settings()
         client = get_embeddings_client(settings)
+        if client is None:
+            raise RuntimeError("openrouter_api_key is required for the open brain")
         query_embedding = await client.embed(query)
 
         async with get_session_factory()() as session:

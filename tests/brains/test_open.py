@@ -66,28 +66,32 @@ def test_open_embeddings_capability_declared():
 
 
 async def test_capture_thought_uses_embeddings_client(monkeypatch):
-    """capture_thought calls get_embeddings_client — mock it to verify the wiring."""
+    """capture_thought actually calls get_embeddings_client.embed and the returned vector flows into the persisted Thought."""
     import src.brains.open.tools.thoughts as thoughts_module
 
     fake_embedding = [0.1] * 1536
     fake_metadata = {"type": "observation", "topics": ["test"], "people": [], "action_items": []}
 
     class FakeClient:
+        def __init__(self):
+            self.called_with: str | None = None
+
         async def embed(self, text: str) -> list[float]:
+            self.called_with = text
             return fake_embedding
 
-    class FakeSession:
-        def __init__(self):
-            self._committed = False
+    fake_client = FakeClient()
+    added_objects: list = []
 
+    class FakeSession:
         async def flush(self):
             pass
 
         async def commit(self):
-            self._committed = True
+            pass
 
         def add(self, obj):
-            pass
+            added_objects.append(obj)
 
         async def __aenter__(self):
             return self
@@ -99,14 +103,29 @@ async def test_capture_thought_uses_embeddings_client(monkeypatch):
         def __call__(self):
             return FakeSession()
 
-    monkeypatch.setattr(thoughts_module, "get_embeddings_client", lambda settings: FakeClient())
+    async def fake_extract(text: str) -> dict:
+        return fake_metadata
+
+    # get_settings is called inside the tool body; replace it so no real Settings
+    # instantiation (which needs env vars) happens during the call.
+    monkeypatch.setattr(thoughts_module, "get_settings", lambda: object())
+    monkeypatch.setattr(thoughts_module, "get_embeddings_client", lambda settings: fake_client)
     monkeypatch.setattr(thoughts_module, "get_session_factory", lambda: FakeSessionFactory())
-    monkeypatch.setattr(thoughts_module, "_extract_metadata", lambda text: fake_metadata)
+    monkeypatch.setattr(thoughts_module, "_extract_metadata", fake_extract)
 
     brain = load_brain(BrainType.OPEN)
     mcp = FastMCP("t")
     brain.register(mcp)
 
-    # Verify the tool is registered and callable structure is in place
-    tools = await mcp.list_tools()
-    assert "capture_thought" in {t.name for t in tools}
+    result = await mcp.call_tool("capture_thought", {"content": "hello world"})
+
+    # embed was called with the tool input
+    assert fake_client.called_with == "hello world", "embed() was not called with the input content"
+
+    # the vector from client.embed actually flowed into the persisted Thought
+    assert len(added_objects) == 1, f"expected 1 Thought added, got {len(added_objects)}"
+    assert added_objects[0].embedding == fake_embedding, (
+        "Thought.embedding does not match the vector returned by client.embed"
+    )
+
+    assert not result.is_error
