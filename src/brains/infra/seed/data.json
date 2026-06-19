@@ -1,0 +1,482 @@
+{
+  "versions": [
+    {
+      "package": "python",
+      "canonical": "3.12",
+      "min_allowed": "3.12.0",
+      "blocked_above": "3.13.0",
+      "reason": "3.13 ecosystem compatibility not yet validated across portfolio. 3.12 confirmed stable across all apps.",
+      "confirmed_in": ["contacts", "booking-assistant", "inbox-assistant", "real-estate-analyzer", "infra-brain"],
+      "ecosystem": "system"
+    },
+    {
+      "package": "python-base-image",
+      "canonical": "python:3.12-slim",
+      "min_allowed": null,
+      "blocked_above": null,
+      "reason": "Use slim, not alpine. Alpine lacks glibc and causes issues with compiled dependencies like asyncpg and psycopg2.",
+      "confirmed_in": ["contacts", "booking-assistant", "inbox-assistant"],
+      "ecosystem": "docker"
+    },
+    {
+      "package": "fastapi",
+      "canonical": "0.115.6",
+      "min_allowed": "0.115.0",
+      "blocked_above": null,
+      "reason": "Latest stable 0.115.x. Requires pydantic v2. Do not use older versions — missing async lifespan support.",
+      "confirmed_in": ["contacts", "booking-assistant", "inbox-assistant", "real-estate-analyzer"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "uvicorn",
+      "canonical": "0.32.1",
+      "min_allowed": "0.30.0",
+      "blocked_above": null,
+      "reason": "Always install uvicorn[standard] to include websocket and http2 extras. Latest stable.",
+      "confirmed_in": ["contacts", "booking-assistant", "inbox-assistant"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "sqlalchemy",
+      "canonical": "2.0.36",
+      "min_allowed": "2.0.0",
+      "blocked_above": "2.1.0",
+      "reason": "SQLAlchemy 2.1.x introduces async session breaking changes not yet validated in portfolio. Always use 2.0-style async (AsyncSession, async_sessionmaker). Do NOT use legacy 1.x patterns.",
+      "confirmed_in": ["contacts", "inbox-assistant", "real-estate-analyzer"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "alembic",
+      "canonical": "1.13.3",
+      "min_allowed": "1.13.0",
+      "blocked_above": null,
+      "reason": "Pairs with SQLAlchemy 2.0.x. Run migrations at container startup (not build time). Use async env.py pattern.",
+      "confirmed_in": ["contacts", "inbox-assistant", "real-estate-analyzer"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "asyncpg",
+      "canonical": "0.29.0",
+      "min_allowed": "0.29.0",
+      "blocked_above": null,
+      "reason": "Async PostgreSQL driver. Required for FastAPI + SQLAlchemy async pattern. Use postgresql+asyncpg:// in DATABASE_URL.",
+      "confirmed_in": ["contacts", "inbox-assistant", "real-estate-analyzer"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "psycopg2-binary",
+      "canonical": "2.9.10",
+      "min_allowed": "2.9.0",
+      "blocked_above": null,
+      "reason": "Sync PostgreSQL driver. Use only when async is not applicable. Prefer asyncpg for all FastAPI apps.",
+      "confirmed_in": [],
+      "ecosystem": "python"
+    },
+    {
+      "package": "pydantic",
+      "canonical": "2.10.3",
+      "min_allowed": "2.0.0",
+      "blocked_above": null,
+      "reason": "Pydantic v2 only. All models use v2 syntax (model_config = ConfigDict(...), not class Config). FastAPI 0.115.x requires v2. Treat v1-to-v2 as a full breaking migration.",
+      "confirmed_in": ["contacts", "inbox-assistant", "real-estate-analyzer"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "pydantic-settings",
+      "canonical": "2.7.0",
+      "min_allowed": "2.0.0",
+      "blocked_above": null,
+      "reason": "Settings management from env vars and .env files. Use BaseSettings with ConfigDict(env_file='.env').",
+      "confirmed_in": ["contacts"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "python-dotenv",
+      "canonical": "1.0.1",
+      "min_allowed": "1.0.0",
+      "blocked_above": null,
+      "reason": "Load .env for local development. pydantic-settings handles this automatically when configured.",
+      "confirmed_in": ["contacts", "booking-assistant"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "httpx",
+      "canonical": "0.28.1",
+      "min_allowed": "0.27.0",
+      "blocked_above": null,
+      "reason": "Async HTTP client. Used as FastAPI test client (TestClient replacement for async) and for outbound API calls.",
+      "confirmed_in": ["contacts"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "rq",
+      "canonical": "1.16.2",
+      "min_allowed": "1.16.0",
+      "blocked_above": null,
+      "reason": "Redis Queue for background workers (Flavor C apps). Pairs with redis-py 5.x.",
+      "confirmed_in": ["contacts"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "redis-py",
+      "canonical": "5.2.1",
+      "min_allowed": "5.0.0",
+      "blocked_above": null,
+      "reason": "Python Redis client. Import as 'redis'. Pairs with rq 1.16.x.",
+      "confirmed_in": ["contacts"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "pytest",
+      "canonical": "7.4.4",
+      "min_allowed": "7.0.0",
+      "blocked_above": null,
+      "reason": "Test runner. Target 80% coverage minimum. Pairs with pytest-asyncio for async test support.",
+      "confirmed_in": ["contacts", "booking-assistant", "inbox-assistant"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "pytest-asyncio",
+      "canonical": "0.23.8",
+      "min_allowed": "0.23.0",
+      "blocked_above": null,
+      "reason": "Async test support for FastAPI + SQLAlchemy async apps. Use asyncio_mode='auto' in pytest.ini.",
+      "confirmed_in": ["contacts", "inbox-assistant"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "fastmcp",
+      "canonical": "2.3.4",
+      "min_allowed": "2.0.0",
+      "blocked_above": null,
+      "reason": "FastMCP framework for building MCP servers in Python. Mounts as ASGI app on FastAPI. Use streamable HTTP transport.",
+      "confirmed_in": ["infra-brain"],
+      "ecosystem": "python"
+    },
+    {
+      "package": "postgres",
+      "canonical": "16-alpine",
+      "min_allowed": null,
+      "blocked_above": null,
+      "reason": "PostgreSQL 16 Alpine for Docker compose services. Never use :latest. For Coolify managed DB, select PG 16 explicitly.",
+      "confirmed_in": ["contacts", "lifeops-portal", "inbox-assistant", "infra-brain"],
+      "ecosystem": "docker"
+    },
+    {
+      "package": "redis",
+      "canonical": "7-alpine",
+      "min_allowed": null,
+      "blocked_above": null,
+      "reason": "Redis 7 Alpine. Always configure appendonly yes for queue durability. Redis is cache/queue only — not primary datastore.",
+      "confirmed_in": ["contacts"],
+      "ecosystem": "docker"
+    },
+    {
+      "package": "node-base-image",
+      "canonical": "node:20-alpine",
+      "min_allowed": null,
+      "blocked_above": null,
+      "reason": "Node 20 Alpine for Next.js apps. Never source-build Next.js on VPS — always pre-build via GitHub Actions and push to GHCR.",
+      "confirmed_in": ["lifeops-portal"],
+      "ecosystem": "docker"
+    },
+    {
+      "package": "nextjs",
+      "canonical": "14.2.18",
+      "min_allowed": "14.0.0",
+      "blocked_above": null,
+      "reason": "Next.js 14 App Router. Never source-build on the VPS — CPU spikes stall Coolify deploys. Pre-build via GitHub Actions.",
+      "confirmed_in": ["lifeops-portal"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "prisma",
+      "canonical": "5.22.0",
+      "min_allowed": "5.0.0",
+      "blocked_above": null,
+      "reason": "Prisma 5.x ORM for Next.js apps. Pairs with node 20 and nextjs 14.",
+      "confirmed_in": ["lifeops-portal"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "typescript",
+      "canonical": "5.7.2",
+      "min_allowed": "5.0.0",
+      "blocked_above": null,
+      "reason": "TypeScript 5.x for all Node projects.",
+      "confirmed_in": ["lifeops-portal", "real-estate-analyzer"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "react",
+      "canonical": "18.3.1",
+      "min_allowed": "18.0.0",
+      "blocked_above": null,
+      "reason": "React 18.x. Pairs with vite 5. Do not use Create React App — Vite only.",
+      "confirmed_in": ["real-estate-analyzer"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "vite",
+      "canonical": "5.4.11",
+      "min_allowed": "5.0.0",
+      "blocked_above": null,
+      "reason": "Vite 5 for React frontends. No Create React App.",
+      "confirmed_in": ["real-estate-analyzer"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "tailwindcss",
+      "canonical": "3.4.16",
+      "min_allowed": "3.0.0",
+      "blocked_above": null,
+      "reason": "Tailwind CSS 3.x. Tailwind 4 not yet validated in portfolio.",
+      "confirmed_in": ["real-estate-analyzer"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "@tanstack/react-query",
+      "canonical": "5.62.7",
+      "min_allowed": "5.0.0",
+      "blocked_above": null,
+      "reason": "TanStack Query v5 for data fetching in React apps.",
+      "confirmed_in": ["real-estate-analyzer"],
+      "ecosystem": "node"
+    },
+    {
+      "package": "recharts",
+      "canonical": "2.14.1",
+      "min_allowed": "2.0.0",
+      "blocked_above": null,
+      "reason": "Recharts 2.x for charting in React apps.",
+      "confirmed_in": ["real-estate-analyzer"],
+      "ecosystem": "node"
+    }
+  ],
+
+  "rules": [
+    {
+      "severity": "BLOCK",
+      "category": "deployment",
+      "rule": "Never source-build Next.js or any TypeScript/Node app on the VPS via Coolify.",
+      "reason": "Host CPU cannot handle npm build. Causes CPU spikes and stalled Coolify deploys. Always pre-build via GitHub Actions and push image to GHCR.",
+      "source_app": "lifeops-portal"
+    },
+    {
+      "severity": "BLOCK",
+      "category": "secrets",
+      "rule": "Never commit secrets, .env files, or API keys to git.",
+      "reason": "Security. All secrets go in BWS (Bitwarden Secrets Manager). Coolify injects them as environment variables at deploy time.",
+      "source_app": null
+    },
+    {
+      "severity": "BLOCK",
+      "category": "docker",
+      "rule": "Never use the :latest tag for any Docker image (postgres, redis, node, python, etc.).",
+      "reason": "Unpredictable upgrades break reproducibility and can introduce breaking changes silently.",
+      "source_app": null
+    },
+    {
+      "severity": "BLOCK",
+      "category": "deployment",
+      "rule": "Disable Coolify scheduled jobs for Flavor C apps that have an in-stack scheduler sidecar.",
+      "reason": "Coolify cron running alongside the scheduler sidecar causes duplicated backups, health probes, and restore drills.",
+      "source_app": "contacts"
+    },
+    {
+      "severity": "BLOCK",
+      "category": "ci",
+      "rule": "Coolify webhook redeploy trigger must fire after the GHCR image push completes, not before.",
+      "reason": "Early trigger causes Coolify to pull the previous stale image instead of the newly built one.",
+      "source_app": null
+    },
+    {
+      "severity": "BLOCK",
+      "category": "database",
+      "rule": "Never run Alembic migrations at Docker build time (in Dockerfile RUN steps).",
+      "reason": "No database connection exists at build time. Migrations must run at container startup in the CMD entrypoint.",
+      "source_app": null
+    },
+    {
+      "severity": "WARN",
+      "category": "deployment",
+      "rule": "Flavor A apps (SQLite) require a manually configured Coolify scheduled backup job.",
+      "reason": "Coolify's built-in auto-backup only works for its managed Postgres resources. SQLite backup requires a Coolify cron job calling backup.sh.",
+      "source_app": "booking-assistant"
+    },
+    {
+      "severity": "WARN",
+      "category": "database",
+      "rule": "Do not use Redis as a primary datastore.",
+      "reason": "Redis is queue and cache only. All durable data must live in Postgres. Redis data loss on restart must be acceptable.",
+      "source_app": "contacts"
+    },
+    {
+      "severity": "WARN",
+      "category": "docker",
+      "rule": "Use python:3.12-slim, not python:3.12-alpine, as the Python base image.",
+      "reason": "Alpine lacks glibc. Compiled Python dependencies (asyncpg, psycopg2, etc.) fail or require complex workarounds on Alpine.",
+      "source_app": null
+    },
+    {
+      "severity": "WARN",
+      "category": "deployment",
+      "rule": "Google OAuth redirect URIs must match exactly and must be registered per environment (production and preview separately).",
+      "reason": "A mismatch causes silent OAuth failure. Preview deployments need their own callback URI registered in Google Cloud Console.",
+      "source_app": "booking-assistant"
+    },
+    {
+      "severity": "WARN",
+      "category": "ci",
+      "rule": "Pin SHA or version tags for all third-party GitHub Actions steps.",
+      "reason": "Floating tags (e.g. actions/checkout@main) can be updated by the action author and introduce unexpected behavior.",
+      "source_app": null
+    },
+    {
+      "severity": "INFO",
+      "category": "deployment",
+      "rule": "Coolify health checks must target 127.0.0.1, not the public domain.",
+      "reason": "Coolify probes the internal container network. Using the public domain adds unnecessary DNS round-trips and can fail if DNS hasn't propagated.",
+      "source_app": null
+    },
+    {
+      "severity": "INFO",
+      "category": "deployment",
+      "rule": "If an app uses Basic Auth, exempt the health check path (/api/health) from authentication.",
+      "reason": "Coolify health probes do not send credentials. A protected health endpoint will always return 401 and Coolify will mark the app as unhealthy.",
+      "source_app": "contacts"
+    },
+    {
+      "severity": "INFO",
+      "category": "general",
+      "rule": "Query Infra Brain before pinning any dependency version or making any infrastructure decision.",
+      "reason": "Infra Brain is the source of truth. Do not infer standards from existing app code — that code may predate the standard.",
+      "source_app": null
+    },
+    {
+      "severity": "INFO",
+      "category": "general",
+      "rule": "Write back to Infra Brain when a new version is validated or a new lesson is learned.",
+      "reason": "The registry only stays current if agents and humans update it. A stale registry is worse than no registry.",
+      "source_app": null
+    }
+  ],
+
+  "combos": [
+    {
+      "name": "python-fastapi-stack",
+      "description": "Full Python FastAPI stack for Flavor B and C apps. Use this for any new Python/FastAPI project.",
+      "ecosystem": "python",
+      "flavor": null,
+      "confirmed_in": ["contacts", "inbox-assistant", "real-estate-analyzer"],
+      "packages": {
+        "python": "3.12",
+        "fastapi": "0.115.6",
+        "uvicorn[standard]": "0.32.1",
+        "sqlalchemy": "2.0.36",
+        "alembic": "1.13.3",
+        "asyncpg": "0.29.0",
+        "pydantic": "2.10.3",
+        "pydantic-settings": "2.7.0",
+        "python-dotenv": "1.1.0",
+        "httpx": "0.28.1",
+        "pytest": "7.4.4",
+        "pytest-asyncio": "0.23.8"
+      }
+    },
+    {
+      "name": "python-fastapi-rq-stack",
+      "description": "Additional packages for Flavor C apps (workers + queue). Layer on top of python-fastapi-stack.",
+      "ecosystem": "python",
+      "flavor": "C",
+      "confirmed_in": ["contacts"],
+      "packages": {
+        "rq": "1.16.2",
+        "redis": "5.2.1"
+      }
+    },
+    {
+      "name": "nextjs-prisma-stack",
+      "description": "Full Next.js 14 App Router stack with Prisma ORM. For Flavor B Node apps.",
+      "ecosystem": "node",
+      "flavor": "B",
+      "confirmed_in": ["lifeops-portal"],
+      "packages": {
+        "node": "20",
+        "next": "14.2.18",
+        "react": "18.3.1",
+        "react-dom": "18.3.1",
+        "typescript": "5.7.2",
+        "prisma": "5.22.0",
+        "@prisma/client": "5.22.0"
+      }
+    },
+    {
+      "name": "react-vite-stack",
+      "description": "React 18 + Vite 5 frontend stack. For standalone SPAs or FastAPI frontend.",
+      "ecosystem": "node",
+      "flavor": null,
+      "confirmed_in": ["real-estate-analyzer"],
+      "packages": {
+        "react": "18.3.1",
+        "react-dom": "18.3.1",
+        "vite": "5.4.11",
+        "typescript": "5.7.2",
+        "tailwindcss": "3.4.16",
+        "@tanstack/react-query": "5.62.7",
+        "recharts": "2.14.1"
+      }
+    }
+  ],
+
+  "lessons": [
+    {
+      "app": "lifeops-portal",
+      "title": "Next.js source builds on VPS stall Coolify deploys",
+      "content": "Attempting to build a Next.js or TypeScript app directly on the VPS via a Coolify source build causes CPU spikes that stall the entire Coolify deployment queue. The host VPS does not have enough CPU headroom for npm/next build operations. Solution: Always pre-build via GitHub Actions and push the image to GHCR. Coolify should only pull the pre-built image, never build it. This is now a BLOCK rule for all Node/TypeScript apps.",
+      "tags": ["nextjs", "coolify", "deployment", "cpu", "github-actions", "ghcr"],
+      "severity": "CRITICAL",
+      "source": "production-incident"
+    },
+    {
+      "app": "booking-assistant",
+      "title": "Google OAuth PKCE code verifier must persist across the redirect",
+      "content": "FastAPI's OAuth flow for Google Calendar requires the PKCE code_verifier to persist between /admin/google/authorize and /admin/google/callback. If the verifier is stored only in memory or lost between requests (e.g. in a stateless handler), the callback will fail silently. Solution: Store the code_verifier in the session or database at the authorize step and retrieve it in the callback. Fixed in commit ea88d4d.",
+      "tags": ["google", "oauth", "pkce", "fastapi", "google-calendar"],
+      "severity": "WARN",
+      "source": "production-incident"
+    },
+    {
+      "app": "booking-assistant",
+      "title": "Google OAuth redirect URIs must match exactly per environment",
+      "content": "Google Cloud Console validates OAuth redirect URIs exactly, including the subdomain. Production and preview deployments need separate callback URIs registered. Production: https://booking.devonwatkins.com/admin/google/callback. Preview: https://preview.booking.devonwatkins.com/admin/google/callback. Using the wrong URI causes a Google OAuth error with no useful debug information. Set GOOGLE_REDIRECT_URI in BWS per environment.",
+      "tags": ["google", "oauth", "coolify", "preview", "environment"],
+      "severity": "WARN",
+      "source": "production-incident"
+    },
+    {
+      "app": "contacts",
+      "title": "Coolify scheduled jobs duplicate in-stack scheduler sidecar",
+      "content": "Contact Hub runs a scheduler_sidecar.py as an in-stack Docker service that handles all periodic operations (health checks, backups, restore drills). If Coolify scheduled jobs are also configured for the same app, operations run twice — causing double backups, duplicate health probes, and potentially conflicting restore drills. Rule: Disable all Coolify scheduled jobs for Flavor C apps. The sidecar is the single scheduler.",
+      "tags": ["coolify", "scheduler", "flavor-c", "docker", "backup"],
+      "severity": "WARN",
+      "source": "production-incident"
+    },
+    {
+      "app": "contacts",
+      "title": "Health check endpoint must be exempt from Basic Auth",
+      "content": "Contact Hub uses Basic Auth to protect the API. Coolify's internal health check probe does not send credentials, so if /api/health is protected by Basic Auth, every health check returns 401 and Coolify marks the container as unhealthy. Solution: Configure BASIC_AUTH_EXEMPT_PATHS to include /api/health (and any other paths Coolify needs to probe). This is now documented in the infra-standards skill.",
+      "tags": ["coolify", "health-check", "basic-auth", "authentication"],
+      "severity": "WARN",
+      "source": "production-incident"
+    },
+    {
+      "app": "booking-assistant",
+      "title": "Google Calendar all-day events must be handled separately from timed events",
+      "content": "Google Calendar's events.list() API returns all-day events with date fields (not dateTime fields). When checking calendar windows for booking availability, all-day events must be detected and handled explicitly. Offset-aware dateTime timestamps from Google must be normalized to UTC before local timezone conversion, otherwise calendar windows shift incorrectly. Fixed in the March 2026 Google reliability fixes (commit ea88d4d).",
+      "tags": ["google-calendar", "timezone", "utc", "booking", "all-day-events"],
+      "severity": "INFO",
+      "source": "production-incident"
+    }
+  ]
+}
