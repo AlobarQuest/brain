@@ -1,52 +1,76 @@
 # Brain Unification — Design Spec
 
 **Date:** 2026-06-19
-**Status:** Approved
+**Status:** Revised — pending review (conformed to Flavor B)
 **Author:** Devon + Claude (brainstorming session)
+
+> **Revision note (2026-06-19):** The original spec standardized the three brains on
+> their *common as-built state* (compose + embedded Postgres, port 80, Coolify-store
+> secrets) without first consulting infra-brain. After loading the project standards and
+> researching infra-brain's canonical sources, Devon chose to **fully conform to
+> Flavor B**. This revision reflects that: a single-container **GHCR image** app +
+> **separate Coolify-managed Postgres** per brain, **port 8000**, **BWS secrets**,
+> **GitHub Actions CI/CD**, **Coolify FQDN domains**. The core application code is
+> essentially unchanged from the original design; the changes are in packaging,
+> database topology, secrets, CI/CD, and cutover (which now includes a one-time data
+> migration). Decision rationale and the rejected alternatives are in §11.
 
 ## 1. Problem & Goal
 
 App Brain, Infra Brain, and Open Brain are three MCP servers that "don't behave the
-same," making debugging and maintenance costly. A technical comparison showed they are
-~80% identical but have drifted in specific, high-impact ways:
+same," making debugging and maintenance costly. They are ~80% identical but drifted in
+framework version, domain routing, DB image, and per-repo `start.sh`/auth/health/Dockerfile.
 
-- **Framework split:** Infra Brain runs `fastmcp` 3.2.0 + FastAPI 0.135; App Brain and
-  Open Brain run `fastmcp` 2.3.4 + FastAPI 0.115. Two MCP runtimes serving the "same"
-  protocol.
-- **Two domain-routing mechanisms:** Open Brain uses Coolify-managed
-  `docker_compose_domains`; App Brain and Infra Brain hand-wire Traefik labels into
-  compose (frozen, unmanaged, `fqdn` reads null).
-- **DB image mismatch:** Infra Brain on `postgres:16-alpine`; App/Open on
-  `pgvector/pgvector:pg16`.
-- **Independent `start.sh`, auth, health, Dockerfile** per repo — copy-drift across three
-  codebases.
+Two findings shaped the approach:
+1. **They share ~80% of their architecture** — a strong shared template is achievable.
+2. **They deviate from the documented Flavor-B standard** (and so does infra-brain itself,
+   which is *labeled* B but built like A/C). Devon chose to make `brain` the app that
+   actually implements Flavor B properly, gaining its real benefits (managed-DB backups,
+   reproducible GHCR artifact, BWS secret hygiene).
 
-**Goal:** one standardized technical deployment for all three brains, where the **only
+**Goal:** one standardized **Flavor-B** deployment for all three brains, where the **only
 per-brain difference is the database** (and a small set of env vars). One codebase, one
-image definition, behavior selected at runtime.
+**GHCR image**, deployed three times; behavior selected at runtime by `BRAIN_TYPE`.
 
 ## 2. Locked Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Runtime topology | **Multi-instance** — one image, deployed 3× (one container per brain) | Keeps brains fault-isolated; one brain crashing/OOM/bad-deploy never takes the others down. Critical because these are the knowledge backbone and the agent depends on them at runtime. |
-| Source control | **New repo `AlobarQuest/brain`** | Structured for multi-brain from day one; no single brain's quirks become the base. Old three repos archived (not deleted). |
-| FastMCP version | **`fastmcp>=3.4.2,<4`** | 3.x is the GA, actively-developed line; 2.x is maintenance-only. Standardizing on 2.x would buy a second forced migration later. Infra Brain is already on 3.x — it's the one ahead. |
-| DB image | **`pgvector/pgvector:pg16` everywhere** | Harmless superset; Infra Brain simply never creates the vector extension. Makes the Postgres image identical across all three. |
-| Domain routing | **Coolify `docker_compose_domains`** | The managed/supported path (Open Brain's approach); drop hand-wired Traefik labels. |
-| Secrets | **Runtime-only** (drop build-time flag) | Current secrets are flagged build-time AND runtime — broader exposure than needed; Dockerfile doesn't consume them at build. |
-| Health check | **Compose-level only**; disable Coolify's shadow HTTP check | Two disagreeing health configs today; pick one source of truth. |
-| Cutover | **Repoint existing Coolify apps**, one at a time | Preserves each app's UUID → its existing `<UUID>_postgres-data` volume + data. Zero data migration. |
-| Build artifact (Phase 1) | **Build-from-repo ×3** | Identical Dockerfile → identical images, zero new infra. |
-| Build artifact (Phase 2) | **Build-once → GHCR → deploy by tag** | True single artifact + faster deploys. Runtime topology stays multi-instance/fault-isolated permanently. |
+| Runtime topology | **Multi-instance** — one image, deployed 3× (one container per brain) | Fault isolation; one brain crashing never takes the others down. The brains are the knowledge backbone the agent depends on. |
+| Source control | **New repo `AlobarQuest/brain`** (+ Bitbucket mirror) | Multi-brain from day one; old three repos archived. |
+| Deployment flavor | **Flavor B** (single-container) | Devon's decision; gains managed-DB backups + GHCR artifact + BWS hygiene. |
+| Packaging / build | **GHCR image** `ghcr.io/alobarquest/brain`, built & pushed by **GitHub Actions**; Coolify build pack `dockerimage` pulls it | Reproducible single artifact = the literal "one image deployed 3×" goal; no VPS source-build; fast deploys. |
+| FastMCP version | **`fastmcp>=3.4.2,<4`** | 3.x is GA/active; the brains' code already uses the 3.x API (the served `2.3.4` pin is stale). |
+| Port | **8000** | Documented Python/FastAPI standard; unprivileged; no special-casing. |
+| Health check | **`GET /api/health`** (single-container standard), DB-aware → 200 `ok` / 503 `degraded` | Single-container apps use `/api/health`; it already behaves as a readiness probe. Coolify probe: host `127.0.0.1`, port `8000`, enabled, interval 10s, timeout 5s, retries 5, start_period 15s; exempt from auth. |
+| Database | **Separate Coolify-managed Postgres resource per brain**, `pgvector/pgvector:pg16`, PG16, Coolify auto-backup enabled | Flavor B; gains automated backups (the brains have **none** today). One DB per brain (the only per-brain difference). |
+| Domains | **Coolify FQDN field** (single-container), `https://<brain>.devonwatkins.com`, Let's Encrypt | Single-container standard; simpler than compose Traefik labels. |
+| Secrets | **BWS** (Bitwarden Secrets Manager) — referenced by UUID, recorded in `.bws-secrets.toml`; values injected as Coolify env vars at deploy | Matches Devon's security posture + bws hooks; single source of truth, rotation, audit. Never committed. |
+| Cutover | **Per brain: snapshot → create managed DB → restore → deploy GHCR app → verify → swap domain**, one at a time | Controlled, rollback-able. **Note: this introduces a one-time data migration** (embedded → managed Postgres). |
+| Branch | `main` (triggers CI/CD); no `preview` env initially | Single-environment apps, per infra-brain precedent. |
 
 ## 3. Architecture
 
-One repo → one Docker image definition → deployed three times. A single env var
-`BRAIN_TYPE` (`app` | `infra` | `open`) selects at startup: which toolset to register,
-which DB to talk to, which migrations to run, and whether embeddings are enabled. Every
-deployment runs byte-identical code; the only per-brain differences are **env vars + the
-database**.
+One repo → **one GHCR image** → deployed three times as **single-container Coolify apps**.
+A single env var `BRAIN_TYPE` (`app` | `infra` | `open`) selects at startup: which toolset
+to register, which DB to talk to, which migrations to run, and whether embeddings are
+enabled. Every deployment runs the **same image**; the only per-brain differences are
+**env vars + a separate managed Postgres database**.
+
+```
+GitHub Actions (on push to main)
+  test → build & push ghcr.io/alobarquest/brain:{sha,latest} → fire 3 Coolify deploy webhooks
+                                                                  │
+        ┌─────────────────────────────────────────────────────────┼───────────────────────────────┐
+        ▼                                                          ▼                                ▼
+  Coolify app: brain-app          Coolify app: brain-infra              Coolify app: brain-open
+  BRAIN_TYPE=app                  BRAIN_TYPE=infra                       BRAIN_TYPE=open
+  FQDN app-brain.devonwatkins.com FQDN infra-brain.devonwatkins.com     FQDN open-brain.devonwatkins.com
+        │                                │                                     │
+        ▼                                ▼                                     ▼
+  Coolify-managed Postgres        Coolify-managed Postgres              Coolify-managed Postgres
+  (pgvector pg16, auto-backup)    (pgvector pg16, auto-backup)          (pgvector pg16, auto-backup)
+```
 
 Shared core (written once): FastAPI host, FastMCP mount at `/mcp` (+ the no-trailing-slash
 alias shim), `x-brain-key` auth middleware, `/api/health`, async DB engine, OpenRouter
@@ -56,131 +80,140 @@ embeddings client, Dockerfile, `start.sh`.
 
 ```
 brain/
-  Dockerfile                 # multi-stage, py3.12-slim, non-root appuser, EXPOSE 80, CMD start.sh
-  docker-compose.yml         # api + db (pgvector/pgvector:pg16); domain via Coolify docker_compose_domains
-  docker-compose.local.yml   # local dev overrides
-  requirements.txt           # fastmcp>=3.4.2,<4, fastapi, uvicorn[standard], sqlalchemy[async], asyncpg, pgvector, httpx, pydantic-settings, alembic
+  Dockerfile                 # multi-stage, py3.12-slim, non-root appuser, EXPOSE 8000, CMD start.sh
+  docker-compose.local.yml   # LOCAL DEV ONLY: api + pgvector db (prod has no compose)
+  requirements.txt           # fastmcp>=3.4.2,<4, fastapi, uvicorn[standard], sqlalchemy, asyncpg, pgvector, httpx, pydantic*, alembic
   requirements-dev.txt
-  scripts/start.sh           # per-brain alembic upgrade → optional per-brain seed → uvicorn
+  scripts/start.sh           # per-brain alembic upgrade → optional per-brain seed → uvicorn :8000
+  .bws-secrets.toml          # BWS secret UUID manifest consumed by this repo (no values)
+  .github/workflows/ci.yml   # test → build/push GHCR → deploy (3 webhooks) → health poll
   src/
     core/
-      app.py                 # builds FastAPI, mounts FastMCP at /mcp, loads active brain via registry, registers /api/health
-      config.py              # base Settings + BRAIN_TYPE enum + per-brain validation
-      db.py                  # async engine factory (pool 10 / overflow 20 / pre_ping / recycle 3600)
-      auth.py                # x-brain-key / ?key= middleware (hmac compare), configurable allowlist
-      embeddings.py          # OpenRouter client; initialized only when active brain.capabilities.embeddings
+      app.py                 # FastAPI, mount FastMCP /mcp, load active brain via registry, /api/health
+      config.py              # base Settings + BRAIN_TYPE enum + per-brain validation (port default 8000)
+      db.py                  # async engine factory (pool 10/20/pre_ping/recycle 3600)
+      auth.py                # x-brain-key / ?key= middleware, per-brain allowlist
+      embeddings.py          # OpenRouter client; lazy, only when active brain.capabilities.embeddings
       mcp_alias.py           # MCPPrefixAlias shim (/mcp ≡ /mcp/)
       registry.py            # BRAIN_TYPE -> brain module
     brains/
-      app/
-        __init__.py          # register(mcp); capabilities = {embeddings: True}
-        tools.py             # App/AppKnowledge tools
-        models.py            # App, AppKnowledge (Vector(1536))
-        repositories.py
-        migrations/          # relocated app-brain alembic versions (revision IDs preserved)
-        alembic.ini
-        seed.py              # optional; absent for app
-      infra/
-        __init__.py          # capabilities = {embeddings: False}
-        tools.py             # rules / combos / lessons / versions
-        models.py
-        repositories.py
-        migrations/          # relocated infra-brain alembic versions (preserved)
-        alembic.ini
-        seed.py              # seed/data.json loader (--skip-existing) — infra keeps its boot seed
-      open/
-        __init__.py          # capabilities = {embeddings: True}
-        tools.py             # thought capture / semantic search
-        models.py
-        repositories.py
-        migrations/          # relocated open-brain alembic versions (preserved)
-        alembic.ini
+      app/    {__init__.py (register + capabilities), tools.py, models.py, repositories.py, migrations/, alembic.ini}
+      infra/  {…  embeddings=False  + seed.py …}
+      open/   {…  embeddings=True   …}
   tests/
 ```
 
-Each brain package owns only what is unique to it: tools, SQLAlchemy models, repositories,
-its own Alembic migration tree, and an optional seed hook.
+Production runs the **image only** (no compose). `docker-compose.local.yml` exists solely
+for local dev (api + a pgvector Postgres) so contributors can run any `BRAIN_TYPE` locally.
 
 ## 5. How `BRAIN_TYPE` Wires Everything
 
+(Unchanged from the original design.)
+
 - **Tools:** `core/registry.py` maps `BRAIN_TYPE` → brain module; `app.py` calls
   `brain.register(mcp)`. Only the active brain's tools are registered.
-- **Capabilities:** each brain declares flags (e.g. `embeddings`). `embeddings.py` /
-  OpenRouter initializes only when `brain.capabilities.embeddings` is true — Infra Brain
-  never touches OpenRouter though the dependency ships in the image.
+- **Capabilities:** each brain declares flags (e.g. `embeddings`). OpenRouter initializes
+  only when `brain.capabilities.embeddings` — Infra Brain never touches it.
 - **Migrations:** `start.sh` runs `alembic -c src/brains/$BRAIN_TYPE/alembic.ini upgrade
   head` against the brain's own DB. **Existing migration files are relocated verbatim
-  (revision IDs unchanged)** so each existing DB's `alembic_version` already matches and
-  the first `upgrade head` is a clean no-op — no schema rewrite, no data touch.
-- **Seed:** after migrations, `start.sh` runs `python -m src.brains.$BRAIN_TYPE.seed
-  --skip-existing` if that module exists (only Infra Brain has one today).
-- **Auth allowlist (per-brain):** the shared `auth.py` middleware reads its unauthenticated
-  allowlist from the active brain's declaration. `infra`/`open` allow only `/api/health`;
-  `app` additionally allows `/register` + `/.well-known/*` — this **intentionally** permits
-  unauthenticated connections for App Brain and is preserved as-is (not changed by this build).
-- **Config:** shared `Settings` (port, `MCP_ACCESS_KEY`, DB creds, log level) + per-brain
-  extras validated only when relevant (`OPENROUTER_API_KEY` required for `app`/`open`,
-  ignored for `infra`). `MCP_ACCESS_KEY` keeps the 64-char-hex validation.
+  (revision IDs unchanged)** so after the data restore (see §9), the migrated DB's
+  `alembic_version` matches and the first `upgrade head` is a clean no-op.
+- **Seed:** after migrations, `start.sh` runs the brain's `seed.py --skip-existing` if
+  present (only Infra Brain has one).
+- **Auth allowlist (per-brain):** shared `auth.py` reads the active brain's allowlist.
+  `infra`/`open` allow only `/api/health`; `app` additionally allows `/register` +
+  `/.well-known/*` (intentional unauthenticated access — preserved unchanged).
+- **Config:** shared `Settings` (port=8000, `MCP_ACCESS_KEY`, DB creds, log level) +
+  per-brain extras (`OPENROUTER_API_KEY` required for `app`/`open`). `MCP_ACCESS_KEY`
+  validated as 64-char hex.
 
-## 6. Standardization Fixes (folded in by construction)
+## 6. CI/CD (GitHub Actions)
 
-Because everything is shared core, the original drift disappears: one FastMCP pin (3.4.2),
-one Dockerfile/`start.sh`, one auth implementation, `pgvector/pgvector:pg16` everywhere,
-Coolify-managed domains (no hand-wired Traefik labels), runtime-only secrets, single
-compose-level health-check source of truth.
+On push to `main` (mirrors infra-brain's proven pipeline):
+1. **test** — `pytest` (with a throwaway pgvector Postgres for DB-touching tests).
+2. **build-and-push** — log in to GHCR via `GITHUB_TOKEN`; build and push
+   `ghcr.io/alobarquest/brain:<full-sha>` and `:latest`; `type=gha` build cache.
+3. **deploy** — **after** the push completes, fire the Coolify deploy webhook for **each
+   of the three brain apps** (`?uuid=<app>&force=false`, bearer token); wait, then poll
+   each `https://<brain>.devonwatkins.com/api/health` until 200 (fail the job if never).
 
-## 7. Deployment & Cutover (zero data migration)
+Pin all third-party Actions to SHA/version tags. Required Actions secrets:
+`COOLIFY_WEBHOOK_URL`, `COOLIFY_API_TOKEN`, and the three `COOLIFY_APP_UUID_{APP,INFRA,OPEN}`.
 
-Repoint the three **existing** Coolify apps at the new `brain` repo (don't create new
-ones) — preserves each app's UUID and therefore its `<UUID>_postgres-data` volume + data.
+## 7. Secrets (BWS)
 
-Per-brain config matrix:
+Per Devon's security standards: secrets live in **BWS**, referenced by **stable UUID**,
+recorded in a committed **`.bws-secrets.toml`** manifest (UUIDs only — never values).
+Coolify injects the values as environment variables at deploy time; the app reads plain
+env vars at runtime (no BWS CLI in the entrypoint). Never commit a token or `.env`.
 
-| | app | infra | open |
-|---|---|---|---|
-| Coolify app UUID | `x8gkog0ow8k4oo80occ08g0w` | `hg8kkgo0kwoo8goswswgsko0` | `e0000okgowcgkw0wosgo8kg8` |
-| `BRAIN_TYPE` | `app` | `infra` | `open` |
-| DB user / db name (keep existing) | `appbrain` | `infrabrain` | `openbrain` |
-| Embeddings / OpenRouter | yes | **no** | yes |
-| Domain (via `docker_compose_domains`) | `app-brain.devonwatkins.com` | `infra-brain.devonwatkins.com` | `open-brain.devonwatkins.com` |
-| DB image change | none | `postgres:16-alpine` → `pgvector/pgvector:pg16` (same PG16 major; PGDATA-compatible) | none |
-| Existing `MCP_ACCESS_KEY` | keep | keep | keep |
+Secrets per brain: `MCP_ACCESS_KEY` (per brain), `POSTGRES_PASSWORD` (per managed DB),
+`OPENROUTER_API_KEY` (app + open only). If any value is surfaced from a committed file
+during migration, treat it as **leaked → rotate** (deletion is not enough).
 
-Cutover sequence: one brain at a time → deploy → verify `/api/health` + an MCP tool call →
-proceed to next. Rollback for a brain = repoint that one app back to its archived old repo.
-Suggested order: **infra first** (no embeddings, simplest; also exercises the DB-image
-swap), then **open**, then **app**.
+## 8. Standardization Fixes (folded in by construction)
 
-## 8. Roadmap
+Shared core means the original drift disappears: one FastMCP pin (3.4.2), one
+Dockerfile/`start.sh`, one auth implementation, pgvector pg16 everywhere, port 8000,
+Coolify-FQDN domains, BWS secrets, single `/api/health` source of truth, and managed-DB
+auto-backups.
 
-- **Phase 1 (this spec):** build the `brain` repo; cut over all three via build-from-repo×3.
-- **Phase 2:** build-once → push to GHCR → switch the three Coolify apps to
-  `build_pack: dockerimage` on a shared tag. Runtime topology unchanged (stays
-  multi-instance / fault-isolated).
+## 9. Deployment & Cutover (Flavor B — includes one-time data migration)
 
-## 9. Open Items / Risks
+Per brain (execute **one at a time**, verify before the next; **order: infra → open → app**):
 
-- **App Brain `/register` + `/.well-known/*` allowlist:** ~~Confirm whether intentional.~~
-  **Resolved (2026-06-19):** intentional — App Brain purposely allows unauthenticated
-  connections on these paths. Preserved unchanged; modeled as a per-brain configurable
-  allowlist in shared `auth.py` (see §5). Not modified by this build.
-- **`stateless_http=True` + sampling:** all three set stateless HTTP. Historically fragile
-  with `ctx.sample()`/elicitation. Smoke-test any sampling calls on 3.4.2 before cutover.
-- **Infra DB image swap:** `postgres:16-alpine` → `pgvector/pgvector:pg16` is same-major
-  (PG16) so the on-disk data dir is compatible; verify on infra (cutover first) before the
-  others.
-- **FastMCP 3 migration sweep:** grep the relocated code for removed v2 kwargs
-  (`message_path`, WS client transport, duplicate-handling params, auth env auto-load) that
-  now hard-error in v3. App + Open Brain tools must move from `FastMCP(..., json_response,
-  stateless_http)` to `http_app(..., json_response, stateless_http)`.
-- **App Brain 502:** during investigation App Brain's MCP endpoint returned a transient 502
-  while the container reported healthy. Watch for recurrence post-cutover; may be runtime/
-  proxy-path related and could resolve with the unified 3.4.2 runtime.
+1. **Snapshot** the current embedded DB: `pg_dump` the brain's existing compose Postgres
+   to a file on the VPS (and/or a Hetzner server snapshot before starting). Record the old
+   app's repo + deployed commit for rollback.
+2. **Create** a new Coolify-managed Postgres resource (`pgvector/pgvector:pg16`, PG16),
+   **enable Coolify auto-backup**. Use the brain's existing db/user names (`appbrain`,
+   `infrabrain`, `openbrain`) so the restore's ownership matches.
+3. **Restore** the `pg_dump` into the new managed DB (schema + data + `alembic_version`).
+   For app/open, ensure `CREATE EXTENSION vector` is present (pgvector image provides it).
+4. **Deploy** a new single-container Coolify app from `ghcr.io/alobarquest/brain:latest`
+   (build pack `dockerimage`), env: `BRAIN_TYPE`, `POSTGRES_*` → the new managed DB,
+   `MCP_ACCESS_KEY` (existing), `OPENROUTER_API_KEY` (app/open), port 8000; health check
+   `/api/health` (127.0.0.1:8000, the settings in §2). Wire secrets from BWS.
+5. **Verify:** `alembic upgrade head` is a **no-op** (proves the restore preserved revision
+   state); `/api/health` → 200; an MCP tool call returns **existing data** (not empty).
+6. **Swap domain:** move `<brain>.devonwatkins.com` (Coolify FQDN) to the new app; confirm
+   HTTPS + an MCP call end-to-end.
+7. **Decommission** the old compose app (stop; keep its volume until sign-off). **Rollback:**
+   point the domain back at the old compose app (still intact) and restore from snapshot if
+   data was touched.
 
-## 10. Non-Goals
+After all three: archive `AlobarQuest/{app-brain,infra-brain,open-brain}` on GitHub;
+each old README points to `AlobarQuest/brain`. Confirm Coolify auto-backups are running on
+all three managed DBs.
 
-- Runtime topology B (single multi-tenant service) — explicitly **not** pursued; fault
-  isolation is a permanent requirement.
-- Migrating data between databases — each brain keeps its existing DB + volume.
-- Changing tool semantics / APIs of any brain — this is a packaging/deployment
-  unification, not a feature change.
+## 10. Roadmap
+
+- **Phase 1 (this spec):** build `brain` (Flavor B), CI/CD, then migrate + cut over all
+  three. GHCR single artifact is in Phase 1 (no deferred build phase).
+- **Later (optional):** `preview` environments; Bitbucket mirror; consolidating to a single
+  multi-tenant service was explicitly rejected (fault isolation is permanent — §12).
+
+## 11. Open Items / Risks
+
+- **Data migration (new top risk):** embedded → managed Postgres per brain. Mitigated by
+  one-at-a-time, `pg_dump` + Hetzner snapshot, alembic-no-op verification, domain-swap
+  rollback. Keep old volumes until sign-off.
+- **pgvector on a Coolify-managed DB:** confirm the managed Postgres resource can use the
+  `pgvector/pgvector:pg16` image (or that `CREATE EXTENSION vector` is available) for
+  app/open. Verify on the first embeddings brain (open) before app.
+- **BWS wiring is new for these apps:** none of the brains use BWS today. Wiring the
+  `.bws-secrets.toml` manifest + Coolify env injection is net-new work; validate one secret
+  end-to-end before relying on it.
+- **`stateless_http=True` + sampling:** all three set stateless HTTP; smoke-test any
+  `ctx.sample()`/elicitation on 3.4.2 before cutover.
+- **FastMCP v2→v3 kwarg sweep:** ensure transport kwargs are on `http_app(...)`, not the
+  constructor (v3 hard-errors); grep ported code for removed v2 kwargs.
+- **App Brain 502:** transient 502 seen during investigation while the container was
+  healthy; watch post-cutover (may resolve under the unified 3.4.2 runtime).
+
+## 12. Non-Goals
+
+- Single multi-tenant service (runtime-B) — explicitly rejected; fault isolation is
+  permanent.
+- Changing any brain's tool semantics / APIs — this is a packaging/deploy unification.
+- A `preview` environment in Phase 1.
