@@ -110,3 +110,86 @@ def test_true_unknown_brain_raises_value_error():
 
     with pytest.raises(ValueError, match="unknown brain"):
         load_brain(FakeBrainType())
+
+
+# ---------------------------------------------------------------------------
+# REST: GET /api/rules (restored 2026-06-20; consumed by the infraops audit)
+# ---------------------------------------------------------------------------
+
+import datetime
+
+import httpx
+
+
+class _FakeRule:
+    id = 7
+    severity = "BLOCK"
+    category = "deployment"
+    rule = "Never source-build on the VPS."
+    reason = "CPU."
+    source_app = "lifeops"
+    check = None
+    retired_at = None
+    created_at = datetime.datetime(2026, 1, 2, 3, 4, 5)
+
+
+class _FakeSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeRepo:
+    def __init__(self, session):
+        self.session = session
+
+    async def list_all(self, category=None, severity=None, include_retired=False):
+        return [_FakeRule()]
+
+
+def _infra_app(monkeypatch):
+    """Build the real infra app with the DB layer mocked out."""
+    monkeypatch.setenv("BRAIN_TYPE", "infra")
+    monkeypatch.setenv("MCP_ACCESS_KEY", "a" * 64)
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    monkeypatch.setenv("POSTGRES_HOST", "x")
+    monkeypatch.setenv("POSTGRES_USER", "x")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv("POSTGRES_DB", "x")
+
+    import src.brains.infra as infra
+    monkeypatch.setattr(infra, "get_session_factory", lambda: (lambda: _FakeSession()))
+    monkeypatch.setattr(infra, "RuleRepository", _FakeRepo)
+
+    from src.core.app import create_app
+    return create_app()
+
+
+async def test_api_rules_route_registered(monkeypatch):
+    app = _infra_app(monkeypatch)
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/api/rules" in paths
+
+
+async def test_api_rules_requires_key(monkeypatch):
+    app = _infra_app(monkeypatch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.get("/api/rules")
+    assert resp.status_code == 401
+
+
+async def test_api_rules_returns_rules_with_key(monkeypatch):
+    app = _infra_app(monkeypatch)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.get("/api/rules?key=" + "a" * 64)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "rules" in body and len(body["rules"]) == 1
+    r = body["rules"][0]
+    assert r["id"] == 7 and r["severity"] == "BLOCK"
+    # created_at is the REST-only field (the MCP get_rules tool omits it).
+    assert r["created_at"] == "2026-01-02T03:04:05"

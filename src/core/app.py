@@ -102,4 +102,11 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
             media_type="application/json",
         )
 
+    # Optional per-brain REST routes (beyond /api/health and /mcp). These are
+    # auth-protected by the middleware above unless listed in the brain's
+    # auth_exact/auth_prefixes. infra-brain restores GET /api/rules here, which
+    # the infraops standards audit consumes.
+    if hasattr(brain, "register_routes"):
+        brain.register_routes(app)
+
     return app
