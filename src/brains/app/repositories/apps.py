@@ -8,6 +8,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.brains.app.models import App
 
 
+def normalize_host(value: Optional[str]) -> Optional[str]:
+    """Reduce a URL or host string to a bare, comparable host.
+
+    Strips scheme, path, and query; lowercases; trims a trailing dot/slash.
+    >>> normalize_host("https://Booking.devonwatkins.com/")
+    'booking.devonwatkins.com'
+    >>> normalize_host("booking.devonwatkins.com")
+    'booking.devonwatkins.com'
+    """
+    if not value:
+        return None
+    v = value.strip().lower()
+    if "://" in v:
+        v = v.split("://", 1)[1]
+    v = v.split("/", 1)[0].split("?", 1)[0]
+    v = v.strip().rstrip(".")
+    return v or None
+
+
+def match_environment(
+    rows: list[dict],
+    coolify_app_uuid: Optional[str] = None,
+    fqdn: Optional[str] = None,
+) -> Optional[dict]:
+    """Resolve a deployment environment to {github_repo, name, branch, url}.
+
+    `rows` is a list of {github_repo, environments[]} records. Resolution order
+    (per the REST contract): EXACT `coolify_app_uuid` across all environments
+    first; FALLBACK to `fqdn` host match against each environment's `url` host.
+    Returns the first match joined with its app's github_repo, or None. Never
+    guesses — branch/url are returned exactly as stored (may be null).
+    """
+    def _joined(github_repo, env):
+        return {
+            "github_repo": github_repo,
+            "name": env.get("name"),
+            "branch": env.get("branch"),
+            "url": env.get("url"),
+        }
+
+    if coolify_app_uuid:
+        for row in rows:
+            for env in row.get("environments") or []:
+                if env.get("coolify_app_uuid") == coolify_app_uuid:
+                    return _joined(row.get("github_repo"), env)
+
+    if fqdn:
+        target = normalize_host(fqdn)
+        if target:
+            for row in rows:
+                for env in row.get("environments") or []:
+                    if normalize_host(env.get("url")) == target:
+                        return _joined(row.get("github_repo"), env)
+
+    return None
+
+
 class AppRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -34,6 +91,24 @@ class AppRepository:
             select(App).where(App.slug == slug)
         )
         return result.scalar_one_or_none()
+
+    async def resolve_environment(
+        self,
+        coolify_app_uuid: Optional[str] = None,
+        fqdn: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Resolve a Coolify app (by stable app UUID, else FQDN) to its
+        {github_repo, name, branch, url}. Returns None when nothing matches.
+
+        A Python scan over (github_repo, environments) rather than a Postgres
+        JSONB query: the FQDN fallback needs URL-host normalization that is
+        fragile in SQL, the matching logic is then a single pure, unit-tested
+        function, and N is tiny (~17 apps). The exact-UUID path could be a JSONB
+        query, but keeping both paths in one place is simpler than splitting them.
+        """
+        result = await self.session.execute(select(App.github_repo, App.environments))
+        rows = [{"github_repo": r.github_repo, "environments": r.environments} for r in result.all()]
+        return match_environment(rows, coolify_app_uuid=coolify_app_uuid, fqdn=fqdn)
 
     async def create_app(self, **kwargs) -> App:
         app = App(**kwargs)
