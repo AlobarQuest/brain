@@ -22,6 +22,10 @@ class App(Base):
     tech_stack: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     repo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     deployment_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    github_repo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    environments: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa.text("'active'"))
     tags: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")
