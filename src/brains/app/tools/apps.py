@@ -8,7 +8,30 @@ from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 
 APP_STATUSES = ["active", "archived", "in-progress", "paused"]
-UPDATABLE_FIELDS = ["name", "description", "tech_stack", "status", "deployment_url", "tags", "repo_path"]
+UPDATABLE_FIELDS = ["name", "description", "tech_stack", "status", "deployment_url", "tags", "repo_path", "github_repo", "environments"]
+
+
+def serialize_app_profile(app, coverage: dict) -> dict:
+    """Build the get_app response. This dict IS the public contract consumed by
+    downstream agents (e.g. the infraops brief generator); keep it stable and
+    additive. `github_repo` is "owner/repo" or null; `environments` is a list of
+    {name, branch, url, coolify_app_uuid} records (branch/url null when unknown)."""
+    return {
+        "slug": app.slug,
+        "name": app.name,
+        "description": app.description,
+        "tech_stack": app.tech_stack,
+        "repo_path": app.repo_path,
+        "deployment_url": app.deployment_url,
+        "github_repo": app.github_repo,
+        "environments": app.environments,
+        "status": app.status,
+        "tags": app.tags,
+        "onboarding_status": app.onboarding_status,
+        "last_onboarded_at": app.last_onboarded_at.isoformat() if app.last_onboarded_at else None,
+        "created_at": app.created_at.isoformat() if app.created_at else None,
+        "coverage": coverage,
+    }
 
 
 def register_app_tools(mcp: FastMCP) -> None:
@@ -38,20 +61,7 @@ def register_app_tools(mcp: FastMCP) -> None:
 
         coverage = {t: type_counts.get(t, 0) for t in KNOWLEDGE_TYPES}
 
-        return {
-            "slug": app.slug,
-            "name": app.name,
-            "description": app.description,
-            "tech_stack": app.tech_stack,
-            "repo_path": app.repo_path,
-            "deployment_url": app.deployment_url,
-            "status": app.status,
-            "tags": app.tags,
-            "onboarding_status": app.onboarding_status,
-            "last_onboarded_at": app.last_onboarded_at.isoformat() if app.last_onboarded_at else None,
-            "created_at": app.created_at.isoformat() if app.created_at else None,
-            "coverage": coverage,
-        }
+        return serialize_app_profile(app, coverage)
 
     @mcp.tool()
     async def update_app(
@@ -63,11 +73,18 @@ def register_app_tools(mcp: FastMCP) -> None:
         deployment_url: Optional[str] = None,
         tags: Optional[list[str]] = None,
         repo_path: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        environments: Optional[list[dict]] = None,
     ) -> dict:
-        """Update structured fields on an app (name, description, tech_stack, status, tags, repo_path, deployment_url)."""
+        """Update structured fields on an app (name, description, tech_stack, status, tags, repo_path, deployment_url, github_repo, environments).
+
+        environments is a list of {name, branch, url, coolify_app_uuid} records describing,
+        per environment, the git branch each one deploys from.
+        """
         all_fields = {
             "name": name, "description": description, "tech_stack": tech_stack,
             "status": status, "deployment_url": deployment_url, "tags": tags, "repo_path": repo_path,
+            "github_repo": github_repo, "environments": environments,
         }
         fields = {k: v for k, v in all_fields.items() if v is not None}
         if not fields:
