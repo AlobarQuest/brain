@@ -364,6 +364,26 @@
 
   "combos": [
     {
+      "name": "unified-brain-platform",
+      "description": "Shared platform for the three brains (app/infra/open): one FastAPI + FastMCP-3 host (src/core) selected at runtime by BRAIN_TYPE, one GHCR image (ghcr.io/alobarquest/brain), deployed on Coolify (Flavor B). Each brain adds only its own models/tools/Alembic migrations under src/brains/<type>; the stack itself is shared — do not duplicate it per brain. All three use Postgres (app/open add pgvector for embeddings; infra does not).",
+      "ecosystem": "python",
+      "flavor": "B",
+      "confirmed_in": ["app-brain", "infra-brain", "open-brain"],
+      "packages": {
+        "python": "3.12",
+        "fastmcp": ">=3.4.2,<4",
+        "fastapi": "0.135.3",
+        "uvicorn[standard]": "0.44.0",
+        "sqlalchemy": "2.0.49",
+        "asyncpg": "0.31.0",
+        "alembic": "1.18.4",
+        "pgvector": "0.3.6",
+        "httpx": "0.28.1",
+        "pydantic": ">=2.11,<3",
+        "pydantic-settings": ">=2.7,<3"
+      }
+    },
+    {
       "name": "python-fastapi-stack",
       "description": "Full Python FastAPI stack for Flavor B and C apps. Use this for any new Python/FastAPI project.",
       "ecosystem": "python",
