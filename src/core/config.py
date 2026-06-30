@@ -10,6 +10,7 @@ class BrainType(str, Enum):
     APP = "app"
     INFRA = "infra"
     OPEN = "open"
+    CODE = "code"
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

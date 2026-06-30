@@ -2,11 +2,11 @@
 name: brain
 tier: active
 status: active
-purpose: Unified knowledge platform consolidating app-brain, infra-brain, and open-brain
-  behind one MCP/API.
+purpose: Unified knowledge platform serving app-brain, infra-brain, open-brain, and
+  code-brain (the portfolio-wide code-pattern registry) behind one MCP/API.
 version: n/a
 version_source: none
-updated: '2026-06-27'
+updated: '2026-06-30'
 ---
 
 ## Backlog

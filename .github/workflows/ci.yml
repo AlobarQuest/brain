@@ -4,10 +4,15 @@
 #   COOLIFY_APP_UUID_INFRA    — Coolify app UUID for infra-brain
 #   COOLIFY_APP_UUID_OPEN     — Coolify app UUID for open-brain
 #   COOLIFY_APP_UUID_APP      — Coolify app UUID for app-brain
+#   COOLIFY_APP_UUID_CODE     — Coolify app UUID for code-brain (set after the
+#                               code-brain Coolify app exists; until then the
+#                               deploy/health steps skip it gracefully)
 #
 # These secrets are provisioned at cutover (Task 17). The build-and-push and
 # deploy jobs are guarded to main-push only, so this workflow is safe to merge
-# on a PR before secrets exist.
+# on a PR before secrets exist. A brain whose UUID secret is empty is skipped in
+# both the deploy and health-check steps, so adding a new brain never breaks the
+# others' pipeline before its infra is provisioned.
 
 name: CI
 
@@ -76,27 +81,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy all three brain apps
+      - name: Deploy brain apps
         env:
           WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
           API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
           UUID_INFRA: ${{ secrets.COOLIFY_APP_UUID_INFRA }}
           UUID_OPEN: ${{ secrets.COOLIFY_APP_UUID_OPEN }}
           UUID_APP: ${{ secrets.COOLIFY_APP_UUID_APP }}
+          UUID_CODE: ${{ secrets.COOLIFY_APP_UUID_CODE }}
         run: |
-          for entry in "infra:${UUID_INFRA}" "open:${UUID_OPEN}" "app:${UUID_APP}"; do
+          for entry in "infra:${UUID_INFRA}" "open:${UUID_OPEN}" "app:${UUID_APP}" "code:${UUID_CODE}"; do
             name="${entry%%:*}"
             uuid="${entry##*:}"
+            if [ -z "${uuid}" ]; then
+              echo "Skipping ${name}-brain — no COOLIFY_APP_UUID_${name} secret configured yet."
+              continue
+            fi
             echo "Triggering deploy for ${name}-brain (uuid=${uuid})..."
             curl -f -X GET "${WEBHOOK_URL}?uuid=${uuid}&force=false" \
               -H "Authorization: Bearer ${API_TOKEN}"
           done
 
-      - name: Health-check all three brain apps
+      - name: Health-check brain apps
+        env:
+          UUID_INFRA: ${{ secrets.COOLIFY_APP_UUID_INFRA }}
+          UUID_OPEN: ${{ secrets.COOLIFY_APP_UUID_OPEN }}
+          UUID_APP: ${{ secrets.COOLIFY_APP_UUID_APP }}
+          UUID_CODE: ${{ secrets.COOLIFY_APP_UUID_CODE }}
         run: |
           echo "Waiting 30s for deployments to start..."
           sleep 30
-          for name in infra open app; do
+          for entry in "infra:${UUID_INFRA}" "open:${UUID_OPEN}" "app:${UUID_APP}" "code:${UUID_CODE}"; do
+            name="${entry%%:*}"
+            uuid="${entry##*:}"
+            if [ -z "${uuid}" ]; then
+              echo "Skipping ${name}-brain health check — not deployed by this pipeline."
+              continue
+            fi
             domain="${name}-brain.devonwatkins.com"
             echo "Polling https://${domain}/api/health ..."
             for i in 1 2 3 4 5; do
