@@ -1,0 +1,433 @@
+{
+  "roads": [
+    {
+      "slug": "meta-discipline",
+      "name": "Code Brain discipline (query-first / write-back)",
+      "category": "quality",
+      "status": "paved",
+      "summary": "Query Code Brain before implementing a cross-cutting pattern; write back when one is decided or a lesson is learned.",
+      "decided_approach": "Query-first + write-back, mirroring Infra Brain's discipline rules (#14/#15).",
+      "home": "Code Brain (this service)",
+      "owner_standard": "code-standards"
+    },
+
+    {
+      "slug": "auth",
+      "name": "Auth / login / SSO",
+      "category": "application",
+      "status": "paved",
+      "summary": "User login and single sign-on at the app layer.",
+      "home": "Alobar ID (id.alobar.net, OIDC) + sso-integration skill"
+    },
+    {
+      "slug": "authorization",
+      "name": "Authorization (roles / permissions)",
+      "category": "application",
+      "status": "partial",
+      "summary": "Roles and permissions at the app layer.",
+      "home": "via Alobar ID; the app-side pattern isn't separately codified"
+    },
+    {
+      "slug": "secrets-config",
+      "name": "Secrets & config",
+      "category": "application",
+      "status": "paved",
+      "summary": "How apps load secrets and configuration.",
+      "home": "security-standards (BWS) + bws-write-guard / bws-scan-gate (enforced)",
+      "owner_standard": "security-standards"
+    },
+    {
+      "slug": "error-logging",
+      "name": "Error handling & structured logging",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "How we handle errors and emit structured logs.",
+      "home": "high-value gap"
+    },
+    {
+      "slug": "observability",
+      "name": "Observability (metrics / tracing / health checks)",
+      "category": "application",
+      "status": "partial",
+      "summary": "Metrics, tracing, and health checks.",
+      "home": "health probes exist (Coolify); metrics/tracing uncodified"
+    },
+    {
+      "slug": "notifications",
+      "name": "Notifications (email / push / in-app)",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "How apps send email, push, and in-app notifications.",
+      "home": "high-value gap"
+    },
+    {
+      "slug": "background-jobs",
+      "name": "Background jobs / queues / scheduling",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "Async work, queues, and scheduled jobs.",
+      "home": "n8n exists for workflow automation; app-level jobs uncodified"
+    },
+    {
+      "slug": "idempotency",
+      "name": "Idempotency (webhooks / retries / payments)",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "Safe retries for webhooks, payments, and replays."
+    },
+    {
+      "slug": "rate-limiting",
+      "name": "Rate limiting / throttling",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "Protecting endpoints with rate limits and throttling."
+    },
+    {
+      "slug": "feature-flags",
+      "name": "Feature flags / config toggles",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "Runtime feature flags and config toggles."
+    },
+    {
+      "slug": "caching",
+      "name": "Caching",
+      "category": "application",
+      "status": "unpaved",
+      "summary": "Caching strategy and invalidation."
+    },
+    {
+      "slug": "audit-logging",
+      "name": "Audit logging",
+      "category": "application",
+      "status": "partial",
+      "summary": "Recording who-did-what for sensitive actions.",
+      "home": "high-power-actions audit log exists for agent gates; not generalized app-side"
+    },
+
+    {
+      "slug": "db-access",
+      "name": "DB access / ORM / migrations",
+      "category": "data",
+      "status": "partial",
+      "summary": "ORM usage, connection handling, and schema migrations.",
+      "home": "alembic patterns (ADR-0004); per-repo, not a cookbook"
+    },
+    {
+      "slug": "data-modeling",
+      "name": "Data modeling / schema conventions",
+      "category": "data",
+      "status": "unpaved",
+      "summary": "Schema and data-modeling conventions."
+    },
+    {
+      "slug": "backups-restore",
+      "name": "Backups & restore",
+      "category": "data",
+      "status": "paved",
+      "summary": "Database backups and tested restores.",
+      "home": "vps-backup + backup-integration skill",
+      "owner_standard": "vps-backup"
+    },
+    {
+      "slug": "data-retention",
+      "name": "Data retention / PII / privacy",
+      "category": "data",
+      "status": "unpaved",
+      "summary": "Data retention, PII handling, and privacy."
+    },
+    {
+      "slug": "seeding-fixtures",
+      "name": "Seeding / fixtures",
+      "category": "data",
+      "status": "unpaved",
+      "summary": "Seed data and test fixtures."
+    },
+
+    {
+      "slug": "api-conventions",
+      "name": "API conventions (versioning, error envelopes, pagination, filtering)",
+      "category": "api",
+      "status": "unpaved",
+      "summary": "Versioning, error envelopes, pagination, and filtering."
+    },
+    {
+      "slug": "webhooks",
+      "name": "Webhooks (signing, retries, idempotency)",
+      "category": "api",
+      "status": "unpaved",
+      "summary": "Sending and receiving webhooks: signing, retries, idempotency."
+    },
+    {
+      "slug": "client-sdk",
+      "name": "Client / SDK patterns",
+      "category": "api",
+      "status": "unpaved",
+      "summary": "Generated clients and SDK conventions."
+    },
+
+    {
+      "slug": "design-system",
+      "name": "Design system / tokens / components",
+      "category": "frontend",
+      "status": "partial",
+      "summary": "Tokens, components, and a shared design system.",
+      "home": "impeccable skill; agent-sites as exemplar"
+    },
+    {
+      "slug": "theming",
+      "name": "Theming",
+      "category": "frontend",
+      "status": "partial",
+      "summary": "Theme tokens and light/dark theming.",
+      "home": "covered by impeccable"
+    },
+    {
+      "slug": "state-management",
+      "name": "State management",
+      "category": "frontend",
+      "status": "unpaved",
+      "summary": "Client-side state management patterns."
+    },
+    {
+      "slug": "forms-validation",
+      "name": "Forms & validation",
+      "category": "frontend",
+      "status": "unpaved",
+      "summary": "Form handling and client/server validation."
+    },
+    {
+      "slug": "data-fetching",
+      "name": "Data fetching / loading & error states",
+      "category": "frontend",
+      "status": "unpaved",
+      "summary": "Data fetching with loading and error states."
+    },
+    {
+      "slug": "accessibility",
+      "name": "Accessibility",
+      "category": "frontend",
+      "status": "unpaved",
+      "summary": "Accessible UI conventions (a11y)."
+    },
+
+    {
+      "slug": "ci-gate",
+      "name": "CI lint / type / test gate",
+      "category": "delivery-ops",
+      "status": "paved",
+      "summary": "The CI gate that runs lint, types, and tests.",
+      "home": "code-standards (quality.yml + Stop hook)",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "deploy-release",
+      "name": "Deploy / release",
+      "category": "delivery-ops",
+      "status": "paved",
+      "summary": "How apps are deployed and released.",
+      "home": "Coolify + infra-brain patterns"
+    },
+    {
+      "slug": "infra-as-code",
+      "name": "Infra-as-code",
+      "category": "delivery-ops",
+      "status": "partial",
+      "summary": "Provisioning infrastructure as code.",
+      "home": "infraops MCP + infra-brain"
+    },
+    {
+      "slug": "dns-domains",
+      "name": "DNS / domains",
+      "category": "delivery-ops",
+      "status": "paved",
+      "summary": "DNS records and domain management.",
+      "home": "Cloudflare / Namecheap via infraops"
+    },
+    {
+      "slug": "dependency-updates",
+      "name": "Dependency updates",
+      "category": "delivery-ops",
+      "status": "paved",
+      "summary": "Automated dependency updates.",
+      "home": "Dependabot (code-standards, vendored)",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "monitoring-alerting",
+      "name": "Monitoring / alerting",
+      "category": "delivery-ops",
+      "status": "unpaved",
+      "summary": "Production monitoring and alerting."
+    },
+    {
+      "slug": "incident-response",
+      "name": "Incident response / runbooks",
+      "category": "delivery-ops",
+      "status": "unpaved",
+      "summary": "Incident handling and runbooks."
+    },
+
+    {
+      "slug": "linting-formatting",
+      "name": "Linting / formatting / types",
+      "category": "quality",
+      "status": "paved",
+      "summary": "Linters, formatters, and type checks.",
+      "home": "code-standards",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "testing-strategy",
+      "name": "Testing strategy (what to test / mock / e2e)",
+      "category": "quality",
+      "status": "partial",
+      "summary": "What to test, what to mock, and e2e strategy.",
+      "home": "a few lines in STANDARDS.md; no per-stack cookbook",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "code-review",
+      "name": "Code review",
+      "category": "quality",
+      "status": "paved",
+      "summary": "How code review is performed.",
+      "home": "/code-review"
+    },
+    {
+      "slug": "security-review",
+      "name": "Security review",
+      "category": "quality",
+      "status": "paved",
+      "summary": "How security review is performed.",
+      "home": "/security-review + security-standards",
+      "owner_standard": "security-standards"
+    },
+    {
+      "slug": "adrs",
+      "name": "ADRs / decision records",
+      "category": "quality",
+      "status": "paved",
+      "summary": "Recording architectural decisions.",
+      "home": "docs/decisions/ pattern",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "documentation-conventions",
+      "name": "Documentation conventions (README, docstrings)",
+      "category": "quality",
+      "status": "partial",
+      "summary": "README and docstring conventions.",
+      "home": "README pattern emerging; not codified"
+    },
+    {
+      "slug": "commenting-conventions",
+      "name": "Commenting conventions",
+      "category": "quality",
+      "status": "partial",
+      "summary": "Comment style — why, not what.",
+      "home": "STANDARDS.md (why-not-what + justified suppressions)",
+      "owner_standard": "code-standards"
+    },
+    {
+      "slug": "commit-pr-conventions",
+      "name": "Commit / PR / branching / changelog conventions",
+      "category": "quality",
+      "status": "partial",
+      "summary": "Commit, PR, branching, and changelog conventions.",
+      "home": "conventional-ish, trunk-ish; not formalized"
+    },
+    {
+      "slug": "versioning",
+      "name": "Versioning",
+      "category": "quality",
+      "status": "unpaved",
+      "summary": "Semantic versioning and release tagging."
+    },
+
+    {
+      "slug": "secrets-handling",
+      "name": "Secrets handling",
+      "category": "security",
+      "status": "paved",
+      "summary": "Handling secrets via BWS.",
+      "home": "security-standards / BWS (see Application)",
+      "owner_standard": "security-standards"
+    },
+    {
+      "slug": "supply-chain-scanning",
+      "name": "Dependency / supply-chain scanning",
+      "category": "security",
+      "status": "partial",
+      "summary": "Scanning dependencies for vulnerabilities.",
+      "home": "Dependabot (deps) + security-standards scanner",
+      "owner_standard": "security-standards"
+    },
+    {
+      "slug": "input-validation",
+      "name": "Input validation / sanitization",
+      "category": "security",
+      "status": "unpaved",
+      "summary": "Validating and sanitizing untrusted input."
+    },
+    {
+      "slug": "threat-modeling",
+      "name": "Threat modeling",
+      "category": "security",
+      "status": "unpaved",
+      "summary": "Threat modeling practice."
+    },
+
+    {
+      "slug": "agent-skills",
+      "name": "Agent skills / integration patterns",
+      "category": "ai",
+      "status": "paved",
+      "summary": "Agent skills and provider-agent integration patterns.",
+      "home": "the skills system + provider-agent pattern"
+    },
+    {
+      "slug": "build-agent-secrets",
+      "name": "Build-agent secrets",
+      "category": "ai",
+      "status": "paved",
+      "summary": "How build agents handle secrets at runtime.",
+      "home": "security-standards/docs/build-agent-secrets.md",
+      "owner_standard": "security-standards"
+    },
+    {
+      "slug": "knowledge-stores",
+      "name": "Knowledge stores (brains)",
+      "category": "ai",
+      "status": "paved",
+      "summary": "The brains knowledge stores: App / Infra / Open / Code.",
+      "home": "App / Infra / Open Brain"
+    },
+    {
+      "slug": "prompt-patterns",
+      "name": "Prompt / context patterns",
+      "category": "ai",
+      "status": "unpaved",
+      "summary": "Prompt and context-engineering patterns."
+    }
+  ],
+
+  "rules": [
+    {
+      "road_slug": "meta-discipline",
+      "severity": "INFO",
+      "category": "quality",
+      "rule": "Query Code Brain before implementing a cross-cutting pattern. Do not infer the standard from existing app code — that code may predate the standard.",
+      "reason": "Code Brain is the source of record for paved-road patterns. Inferring from existing code reproduces drift the registry exists to remove.",
+      "source": "code-brain-spec.md (lifted from Infra Brain #14)"
+    },
+    {
+      "road_slug": "meta-discipline",
+      "severity": "INFO",
+      "category": "quality",
+      "rule": "Write back to Code Brain when a cross-cutting pattern is decided or a lesson is learned.",
+      "reason": "The registry only stays current if agents and humans update it. A stale registry is worse than no registry.",
+      "source": "code-brain-spec.md (lifted from Infra Brain #15)"
+    }
+  ]
+}
