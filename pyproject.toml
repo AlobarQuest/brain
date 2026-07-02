@@ -1,3 +1,19 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C90"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "C90"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", "**/alembic", "**/migrations"]

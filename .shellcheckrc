@@ -1,0 +1,4 @@
+# code-standards shellcheck config (vendored). Edit upstream and `code-standards sync`.
+# Only warning-and-above findings gate; info/style are advisory.
+severity=warning
+external-sources=false

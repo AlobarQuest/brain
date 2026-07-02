@@ -1,0 +1,11 @@
+# code-standards vendored Dependabot config (generated from the repo's
+# ecosystems). Edit upstream and `code-standards sync`. Updates arrive as PRs
+# your CI gates — nothing is auto-merged. github-actions is intentionally
+# omitted: the only workflow is the vendored quality.yml, bumped upstream.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
