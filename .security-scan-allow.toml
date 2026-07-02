@@ -1,0 +1,14 @@
+# Per-repo allowlist for the security-standards scanner (visible in report.allowlisted).
+
+# manifest-matches-usage assumes runtime `bws secret get <uuid>` calls in code.
+# This repo's decided end-state (WS-0.1, 2026-07-02) is BWS-source-of-truth with
+# Coolify env INJECTION — the app never calls BWS, so the manifest's entries have
+# no in-code usage to match. The manifest is nonetheless accurate (UUIDs verified
+# hash-equal to live env values on 2026-07-02).
+# Revisit: when security-standards gains a consumption-mode field (e.g.
+# consumption = "coolify-env") in manifest.py — escalation filed in
+# security-standards PROJECT.md backlog 2026-07-02. Remove this entry then.
+[[allow]]
+rule = "bws.manifest-matches-usage"
+file = ".bws-secrets.toml"
+reason = "env-injection consumption model: manifest declares injected secrets; no runtime bws calls exist by design"
