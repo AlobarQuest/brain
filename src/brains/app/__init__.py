@@ -1,6 +1,8 @@
-from src.core.registry import Capabilities
+from src.brains.app.models import AppKnowledge
 from src.brains.app.tools.apps import register_app_tools
 from src.brains.app.tools.knowledge import register_knowledge_tools
+from src.core.governance import register_governance_tools
+from src.core.registry import Capabilities
 
 capabilities = Capabilities(
     embeddings=True,
@@ -12,6 +14,7 @@ capabilities = Capabilities(
 def register(mcp) -> None:
     register_app_tools(mcp)
     register_knowledge_tools(mcp)
+    register_governance_tools(mcp, {"app_knowledge": AppKnowledge})
 
 
 def register_routes(app) -> None:
@@ -37,8 +40,8 @@ def register_routes(app) -> None:
                 status_code=400,
             )
 
-        from src.core.db import get_session_factory
         from src.brains.app.repositories.apps import AppRepository
+        from src.core.db import get_session_factory
 
         async with get_session_factory()() as session:
             record = await AppRepository(session).resolve_environment(
@@ -50,8 +53,8 @@ def register_routes(app) -> None:
 
 
 async def startup() -> None:
-    from src.core.db import get_session_factory
     from src.brains.app.repositories.apps import AppRepository
+    from src.core.db import get_session_factory
     async with get_session_factory()() as session:
         await AppRepository(session).fail_stale_running()
         await session.commit()

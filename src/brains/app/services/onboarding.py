@@ -3,14 +3,15 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from src.core.config import get_settings
-from src.core.db import get_session_factory
 from src.brains.app.repositories.apps import AppRepository
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.chunker import chunk_text
 from src.brains.app.services.classifier import classify_chunk
 from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.openrouter import embed, extract_metadata
+from src.core.config import get_settings
+from src.core.db import get_session_factory
+from src.core.governance import proposed_defaults
 
 logger = logging.getLogger("app_brain.onboarding")
 
@@ -75,25 +76,34 @@ async def run_onboarding_job(
                 if isinstance(res, Exception):
                     errors.append({"blob": blob_name, "message": str(res)})
                     continue
-                dup = await knowledge_repo.find_duplicate(slug, res["knowledge_type"], res["content_hash"])
+                knowledge_type = res["knowledge_type"]
+                dup = await knowledge_repo.find_duplicate(slug, knowledge_type, res["content_hash"])
                 if dup:
                     total_skipped += 1
                     continue
                 try:
                     async with session.begin_nested():
+                        # Onboarded knowledge lands proposed (never auto-approved) — Devon
+                        # reviews it via the governance approve/reject tools.
+                        governance = proposed_defaults(
+                            proposed_by="onboard",
+                            applicability={"app_slug": slug, "knowledge_type": knowledge_type},
+                            auto_approve=False,
+                        )
                         chunk = await knowledge_repo.create(
                             app_id=app_id,
                             app_slug=slug,
-                            knowledge_type=res["knowledge_type"],
+                            knowledge_type=knowledge_type,
                             content=res["content"],
                             content_hash=res["content_hash"],
                             embedding=res["embedding"],
                             metadata_=res["metadata"],
                             source="onboard",
+                            **governance,
                         )
                         new_chunk_ids.append(chunk.id)
                     total_chunks += 1
-                    type_counts[res["knowledge_type"]] = type_counts.get(res["knowledge_type"], 0) + 1
+                    type_counts[knowledge_type] = type_counts.get(knowledge_type, 0) + 1
                 except Exception as e:
                     errors.append({"blob": res["blob"], "message": str(e)})
 

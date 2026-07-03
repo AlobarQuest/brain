@@ -5,14 +5,16 @@ from typing import Optional
 
 from fastmcp import FastMCP
 
-from src.core.db import get_session_factory
+from src.brains.app.models import AppKnowledge
 from src.brains.app.repositories.apps import AppRepository
 from src.brains.app.repositories.knowledge import KnowledgeRepository
-from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 from src.brains.app.services.chunker import chunk_text
+from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.onboarding import run_onboarding_job
 from src.brains.app.services.openrouter import embed, extract_metadata
+from src.core.db import get_session_factory
+from src.core.governance import finalize_governance, find_conflicts, proposed_defaults
 
 logger = logging.getLogger("app_brain.tools")
 
@@ -35,8 +37,13 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         mode: str = "hybrid",
         limit: int = 10,
         threshold: float = 0.5,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
     ) -> dict:
-        """Search knowledge chunks by meaning (semantic), keywords, or both (hybrid). Use to find information about apps in the brain."""
+        """Search knowledge chunks by meaning (semantic), keywords, or both (hybrid). Use to find
+        information about apps in the brain. Non-approved (proposed/deprecated/superseded)
+        knowledge is excluded unless include_proposed is set. min_authority filters to
+        authority >= the given rank (informational < recommended < required)."""
         if mode not in SEARCH_MODES:
             return {"error": f"invalid_params: mode must be one of {', '.join(SEARCH_MODES)}"}
         limit = min(limit, 50)
@@ -54,6 +61,8 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                     limit=limit,
                     app_slug=app_slug,
                     knowledge_type=knowledge_type,
+                    include_proposed=include_proposed,
+                    min_authority=min_authority,
                 )
 
             if mode in ("keyword", "hybrid"):
@@ -62,6 +71,8 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                     limit=limit,
                     app_slug=app_slug,
                     knowledge_type=knowledge_type,
+                    include_proposed=include_proposed,
+                    min_authority=min_authority,
                 )
 
         if mode == "semantic":
@@ -87,8 +98,13 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         limit: int = 20,
         offset: int = 0,
         active_only: bool = True,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
     ) -> dict:
-        """Browse recent knowledge chunks for an app with optional filters."""
+        """Browse recent knowledge chunks for an app with optional filters. active_only (default
+        True) excludes inactive chunks; non-approved (proposed/deprecated/superseded) knowledge
+        is additionally excluded unless include_proposed is set. min_authority filters to
+        authority >= the given rank (informational < recommended < required)."""
         limit = min(limit, 100)
         async with get_session_factory()() as session:
             repo = KnowledgeRepository(session)
@@ -98,6 +114,8 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 limit=limit,
                 offset=offset,
                 active_only=active_only,
+                include_proposed=include_proposed,
+                min_authority=min_authority,
             )
         return {"chunks": chunks}
 
@@ -108,8 +126,13 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         content: str,
         source: str = "mcp",
         supersedes_id: Optional[str] = None,
+        proposed_by: str | None = None,
+        auto_approve: bool = False,
     ) -> dict:
-        """Store a new knowledge chunk for an app. Auto-generates embedding and extracts metadata."""
+        """Store a new knowledge chunk for an app (status=proposed by default; approved only
+        with the approver key and auto_approve=True). Auto-generates embedding and extracts
+        metadata. A candidate whose (app_slug, knowledge_type) overlaps an approved
+        recommended/required chunk is flagged (advisory; never blocks auto-approve)."""
         if knowledge_type not in KNOWLEDGE_TYPES:
             return {"error": f"invalid_params: knowledge_type must be one of {', '.join(KNOWLEDGE_TYPES)}"}
         if source not in SOURCE_VALUES:
@@ -133,6 +156,19 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 extract_metadata(content),
             )
 
+            applicability = {"app_slug": app_slug, "knowledge_type": knowledge_type}
+            governance = proposed_defaults(
+                proposed_by=proposed_by, applicability=applicability, auto_approve=auto_approve
+            )
+            flag = await find_conflicts(
+                session,
+                AppKnowledge,
+                candidate_check=None,
+                overlap_key_fields=("app_slug", "knowledge_type"),
+                candidate=applicability,
+            )
+            finalize_governance(governance, flag)  # overlap is advisory; never cancels auto-approve
+
             chunk = await knowledge_repo.create(
                 app_id=app.id,
                 app_slug=app_slug,
@@ -143,6 +179,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 metadata_=metadata,
                 source=source,
                 supersedes_id=uuid.UUID(supersedes_id) if supersedes_id else None,
+                **governance,
             )
 
             if supersedes_id:
@@ -153,7 +190,13 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
 
             await session.commit()
 
-        return {"id": str(chunk.id), "duplicate": False, "metadata_summary": metadata}
+        return {
+            "id": str(chunk.id),
+            "duplicate": False,
+            "metadata_summary": metadata,
+            "status": chunk.status,
+            "conflict": flag.kind if flag else None,
+        }
 
     @mcp.tool()
     async def delete_knowledge(id: str) -> dict:
