@@ -656,6 +656,63 @@ async def test_search_excludes_deprecated_rule_and_lesson_by_default(code_db):
     assert {ln["id"] for ln in data["lessons"]} == {approved_lesson_id}
 
 
+async def test_search_include_proposed_surfaces_proposed_rule_and_lesson(code_db):
+    await _seed_road(code_db, slug="road-h2")
+    approved_rule_id = await _seed_rule(
+        code_db, road_slug="road-h2", rule="approved search rule two",
+        reason="findme2", status="approved",
+    )
+    proposed_rule_id = await _seed_rule(
+        code_db, road_slug="road-h2", rule="proposed search rule two",
+        reason="findme2", status="proposed",
+    )
+    approved_lesson_id = await _seed_lesson(
+        code_db, road_slug="road-h2", title="approved search lesson two",
+        content="findme2", status="approved",
+    )
+    proposed_lesson_id = await _seed_lesson(
+        code_db, road_slug="road-h2", title="proposed search lesson two",
+        content="findme2", status="proposed",
+    )
+
+    mcp = _code_mcp()
+    default = await mcp.call_tool("search", {"query": "findme2"})
+    default_data = _data(default)
+    assert {r["id"] for r in default_data["rules"]} == {approved_rule_id}
+    assert {ln["id"] for ln in default_data["lessons"]} == {approved_lesson_id}
+
+    with_proposed = await mcp.call_tool("search", {"query": "findme2", "include_proposed": True})
+    wp_data = _data(with_proposed)
+    assert {r["id"] for r in wp_data["rules"]} == {approved_rule_id, proposed_rule_id}
+    assert {ln["id"] for ln in wp_data["lessons"]} == {approved_lesson_id, proposed_lesson_id}
+
+
+async def test_search_min_authority_filters_rules_and_lessons(code_db):
+    await _seed_road(code_db, slug="road-h3")
+    required_rule_id = await _seed_rule(
+        code_db, road_slug="road-h3", rule="required search rule three",
+        reason="findme3", authority="required",
+    )
+    await _seed_rule(
+        code_db, road_slug="road-h3", rule="informational search rule three",
+        reason="findme3", authority="informational",
+    )
+    required_lesson_id = await _seed_lesson(
+        code_db, road_slug="road-h3", title="required search lesson three",
+        content="findme3", authority="required",
+    )
+    await _seed_lesson(
+        code_db, road_slug="road-h3", title="informational search lesson three",
+        content="findme3", authority="informational",
+    )
+
+    mcp = _code_mcp()
+    result = await mcp.call_tool("search", {"query": "findme3", "min_authority": "required"})
+    data = _data(result)
+    assert {r["id"] for r in data["rules"]} == {required_rule_id}
+    assert {ln["id"] for ln in data["lessons"]} == {required_lesson_id}
+
+
 async def test_add_rule_duplicate_conflict_blocks_auto_approve_until_acknowledged(
     code_db, monkeypatch
 ):
