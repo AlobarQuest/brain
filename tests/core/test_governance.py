@@ -112,3 +112,42 @@ async def test_informational_record_is_not_a_target():
     async with Session() as s:
         assert await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
                                       overlap_key_fields=(), candidate={}) is None
+
+
+@pytest.mark.asyncio
+async def test_exclude_id_prevents_self_target():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(_Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    chk = {"kind": "forbidden_pattern", "pattern": "P"}
+    async with Session() as s:
+        r = _Rec(name="self", status="approved", authority="required", check=chk)
+        s.add(r)
+        await s.commit()
+        rec_id = r.id
+    async with Session() as s:
+        # without exclude_id, the record is its own conflict target (proves
+        # the check below isn't just an unrelated miss)
+        hit = await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
+                                     overlap_key_fields=(), candidate={})
+        assert hit is not None and hit.kind == g.CONFLICT_DUPLICATE
+        excluded = await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
+                                          overlap_key_fields=(), candidate={},
+                                          exclude_id=rec_id)
+        assert excluded is None
+
+
+@pytest.mark.asyncio
+async def test_proposed_required_is_not_a_target():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(_Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    chk = {"kind": "forbidden_pattern", "pattern": "P"}
+    async with Session() as s:
+        s.add(_Rec(name="proposed", status="proposed", authority="required", check=chk))
+        await s.commit()
+    async with Session() as s:
+        assert await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
+                                      overlap_key_fields=(), candidate={}) is None
