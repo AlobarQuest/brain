@@ -1,5 +1,6 @@
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.core import governance as g
@@ -42,7 +43,7 @@ def test_mixin_columns_exist_with_defaults(session):
 
 def test_status_check_constraint_rejects_bad_value(session):
     session.add(_Rec(name="y", status="bogus"))
-    with pytest.raises(sa.exc.IntegrityError):
+    with pytest.raises(IntegrityError):
         session.commit()
 
 
