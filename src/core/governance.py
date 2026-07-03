@@ -40,11 +40,12 @@ def governance_check_constraints(tablename: str) -> tuple[CheckConstraint, ...]:
     __table_args__ (avoids the mixin/__table_args__ override collision)."""
     statuses = ", ".join(f"'{s}'" for s in VALID_STATUSES)
     authorities = ", ".join(f"'{a}'" for a in VALID_AUTHORITIES)
+    kinds = ", ".join(f"'{k}'" for k in (CONFLICT_DUPLICATE, CONFLICT_OVERLAP))
     return (
         CheckConstraint(f"status IN ({statuses})", name=f"ck_{tablename}_status"),
         CheckConstraint(f"authority IN ({authorities})", name=f"ck_{tablename}_authority"),
         CheckConstraint(
-            "conflict_kind IS NULL OR conflict_kind IN ('duplicate', 'overlap')",
+            f"conflict_kind IS NULL OR conflict_kind IN ({kinds})",
             name=f"ck_{tablename}_conflict_kind",
         ),
     )
