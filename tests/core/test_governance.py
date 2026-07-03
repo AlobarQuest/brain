@@ -1,6 +1,7 @@
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.core import governance as g
@@ -54,10 +55,6 @@ def test_approver_ok():
     assert g.approver_ok(None, k) is False
 
 
-import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
-
 def _norm(d):
     return g.normalized_check(d)
 
@@ -69,8 +66,10 @@ def test_normalized_check_is_key_order_independent():
 
 
 def test_overlap_signature_skips_when_field_none():
-    assert g.overlap_signature({"category": "security", "source_app": None}, ("category", "source_app")) is None
-    assert g.overlap_signature({"category": "security", "source_app": "x"}, ("category", "source_app")) == ("security", "x")
+    fields = ("category", "source_app")
+    assert g.overlap_signature({"category": "security", "source_app": None}, fields) is None
+    got = g.overlap_signature({"category": "security", "source_app": "x"}, fields)
+    assert got == ("security", "x")
 
 
 @pytest.mark.asyncio
