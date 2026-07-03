@@ -155,7 +155,31 @@ brains stay consistent.
 
 `retire_rule` / `delete_rule` / `delete_knowledge` continue to work and now also set
 `status='deprecated'` (keeping `retired_at`/`is_active` in sync). `restore_rule` sets
-`status='approved'`. No behavior regressions for current callers.
+`status='approved'` — and is therefore **approver-key-gated** (final-review fix): restore is a
+lifecycle-*elevating* op (deprecated→approved), so leaving it ungated let a contributor reach
+`approved` via propose→delete→restore, defeating the approver-only guarantee. It now requires the
+approver key, consistent with `deprecate`/`reject`.
+
+### 5.6 Accepted risk — the de-escalation half is contributor-reachable (Devon-decided 2026-07-03)
+
+The *creation* of authority is fully gated (propose-only + approver approval). The **de-escalation**
+half is deliberately left ungated for now: `delete_rule`/`retire_rule`/`delete_knowledge` (→deprecated)
+and `capture_knowledge(supersedes_id=…)` (marks an approved chunk superseded) can be called with the
+contributor key, and `update_rule` can rewrite an approved rule's `check` content in place. A poisoned
+agent could thus *suppress* approved knowledge (e.g. hide the 4 BWS security rules from default reads)
+without approval. This is an **accepted risk today** because the contributor key is unset (no agent
+holds it) and the WS-1.1 audit log is the compensating control. **REQUIRED before the contributor key
+is ever issued to a real agent:** gate the destructive tools (delete/retire/supersede, and
+`update_rule` of an `authority='required'` record) behind `require_approver()` — tracked as a
+PROJECT.md backlog item.
+
+### 5.7 Seed & onboarding are governance-aware (final-review fix)
+
+`scripts/start.sh` reseeds on every container start; seed inserts (infra rules/lessons/combos, code
+rules/lessons/exemplars) and `onboard_app` chunk writes now stamp `status='approved'`,
+`authority='informational'`, `proposed_by='seed'`/`'onboard'`, `reviewed_*` — because that content is
+Devon-curated. Without this, a fresh dev/preview/DR-rebuild brain would boot with all seeded knowledge
+`proposed` (invisible), and a re-onboard would black out an app until every chunk was approved.
 
 ## 6. Migration & backfill (one Alembic revision per brain)
 

@@ -9,6 +9,7 @@ Usage:
 import argparse
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.core.db import get_session_factory
@@ -17,6 +18,20 @@ from src.brains.infra.repositories.combos import ComboRepository
 from src.brains.infra.repositories.lessons import LessonRepository
 from src.brains.infra.repositories.rules import RuleRepository
 from src.brains.infra.repositories.versions import VersionRepository
+from src.core.governance import AUTHORITY_INFORMATIONAL, STATUS_APPROVED
+
+
+def _seed_governance() -> dict:
+    """Governance stamp for seeded rules/combos/lessons (curated data — lands
+    approved/informational, not the server-default proposed, so it's visible
+    on a fresh DB via the default read path)."""
+    return {
+        "status": STATUS_APPROVED,
+        "authority": AUTHORITY_INFORMATIONAL,
+        "proposed_by": "seed",
+        "reviewed_by": "seed",
+        "reviewed_at": datetime.now(timezone.utc),
+    }
 
 
 COOLIFY_CHECKS = [
@@ -86,16 +101,19 @@ async def seed(skip_existing: bool = True) -> None:
             await versions_repo.upsert(v)
             versions_loaded += 1
 
-        # Rules — race-safe upsert via ON CONFLICT DO NOTHING on unique rule text
+        # Rules — race-safe upsert via ON CONFLICT DO NOTHING on unique rule text.
+        # Seed data is curated: stamped approved/informational so it's visible on a
+        # fresh DB via the default read path (server default would otherwise land
+        # every seeded rule at status='proposed', invisible to read tools).
         rules_loaded = 0
         for r in data.get("rules", []):
-            await rules_repo.add_if_not_exists(r)
+            await rules_repo.add_if_not_exists({**r, **_seed_governance()})
             rules_loaded += 1
 
         # Coolify structured checks — idempotent via ON CONFLICT DO NOTHING
         coolify_loaded = 0
         for r in COOLIFY_CHECKS:
-            await rules_repo.add_if_not_exists(r)
+            await rules_repo.add_if_not_exists({**r, **_seed_governance()})
             coolify_loaded += 1
 
         # Combos — upsert by name
@@ -109,13 +127,13 @@ async def seed(skip_existing: bool = True) -> None:
                     if key != "name":
                         setattr(existing, key, value)
             else:
-                session.add(Combo(**c))
+                session.add(Combo(**{**c, **_seed_governance()}))
             combos_loaded += 1
 
         # Lessons — race-safe upsert via ON CONFLICT DO NOTHING on unique title
         lessons_loaded = 0
         for l in data.get("lessons", []):
-            await lessons_repo.add_if_not_exists(l)
+            await lessons_repo.add_if_not_exists({**l, **_seed_governance()})
             lessons_loaded += 1
 
         await session.commit()

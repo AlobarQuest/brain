@@ -11,7 +11,7 @@ from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.openrouter import embed, extract_metadata
 from src.core.config import get_settings
 from src.core.db import get_session_factory
-from src.core.governance import proposed_defaults
+from src.core.governance import AUTHORITY_INFORMATIONAL, STATUS_APPROVED
 
 logger = logging.getLogger("app_brain.onboarding")
 
@@ -83,13 +83,19 @@ async def run_onboarding_job(
                     continue
                 try:
                     async with session.begin_nested():
-                        # Onboarded knowledge lands proposed (never auto-approved) — Devon
-                        # reviews it via the governance approve/reject tools.
-                        governance = proposed_defaults(
-                            proposed_by="onboard",
-                            applicability={"app_slug": slug, "knowledge_type": knowledge_type},
-                            auto_approve=False,
-                        )
+                        # Onboarded knowledge is curated content (Devon-decided): it lands
+                        # approved/informational directly, not through proposed_defaults
+                        # (which defaults to proposed) — auto_approve can't fire here anyway
+                        # since this background job has no HTTP request context to read the
+                        # approver key from.
+                        governance = {
+                            "status": STATUS_APPROVED,
+                            "authority": AUTHORITY_INFORMATIONAL,
+                            "proposed_by": "onboard",
+                            "applicability": {"app_slug": slug, "knowledge_type": knowledge_type},
+                            "reviewed_by": "onboard",
+                            "reviewed_at": datetime.now(timezone.utc),
+                        }
                         chunk = await knowledge_repo.create(
                             app_id=app_id,
                             app_slug=slug,

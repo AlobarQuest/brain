@@ -1,7 +1,7 @@
 import re
 from enum import Enum
 from functools import lru_cache
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -29,19 +29,21 @@ class Settings(BaseSettings):
     database_url: str | None = None
     onboard_concurrency: int = 6
 
-    @field_validator("mcp_access_key")
+    @field_validator("mcp_access_key", "contributor_key")
     @classmethod
-    def _hex64(cls, v: str) -> str:
-        if not _HEX64.match(v):
-            raise ValueError("mcp_access_key must be 64 lowercase hex chars")
+    def _hex64(cls, v: str | None, info) -> str | None:
+        if v is not None and not _HEX64.match(v):
+            raise ValueError(f"{info.field_name} must be 64 lowercase hex chars")
         return v
 
-    @field_validator("contributor_key")
-    @classmethod
-    def _contributor_hex64(cls, v: str | None) -> str | None:
-        if v is not None and not _HEX64.match(v):
-            raise ValueError("contributor_key must be 64 lowercase hex chars")
-        return v
+    @model_validator(mode="after")
+    def _keys_must_differ(self) -> "Settings":
+        if self.contributor_key is not None and self.contributor_key == self.mcp_access_key:
+            raise ValueError(
+                "contributor_key must not equal mcp_access_key "
+                "(this would let every contributor act as approver)"
+            )
+        return self
 
     def effective_database_url(self) -> str:
         if self.database_url:

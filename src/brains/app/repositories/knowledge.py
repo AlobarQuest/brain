@@ -321,7 +321,10 @@ class KnowledgeRepository:
         exclude_ids: list[uuid.UUID] | None = None,
     ) -> int:
         """Deactivate only source='onboard' chunks for an app, preserving manual/ai-capture chunks.
-        Optionally exclude specific IDs (e.g., newly created chunks)."""
+        Optionally exclude specific IDs (e.g., newly created chunks). Also deprecates governance
+        status (consistent with deactivate()) so a replaced onboard chunk stops surfacing as
+        'approved' — combined with onboarding landing new chunks approved, a re-onboard yields no
+        knowledge blackout: old chunks deprecated+hidden, new chunks approved+visible."""
         stmt = (
             update(AppKnowledge)
             .where(
@@ -329,7 +332,7 @@ class KnowledgeRepository:
                 AppKnowledge.source == "onboard",
                 AppKnowledge.is_active == True,  # noqa: E712
             )
-            .values(is_active=False)
+            .values(is_active=False, status=STATUS_DEPRECATED)
         )
         if exclude_ids:
             stmt = stmt.where(AppKnowledge.id.notin_(exclude_ids))

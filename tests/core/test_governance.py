@@ -291,3 +291,31 @@ async def test_approve_coerces_uuid_string_id_for_uuid_pk(gov_engine, monkeypatc
     assert _data(bad) == {
         "error": "invalid_id", "record_type": "uuid_rec", "id": "not-a-uuid"
     }
+
+
+def test_coerce_record_id_int_against_uuid_pk_does_not_raise():
+    """An int id passed for a UUID-PK model must not raise a raw AttributeError
+    (session.get() on a Uuid column calling .hex on a plain int) — it should either
+    coerce cleanly (if the int happens to be a valid UUID literal) or raise ValueError
+    so the caller's invalid_id path handles it."""
+    with pytest.raises(ValueError):
+        g._coerce_record_id(_UuidRec, 5)
+
+
+def test_coerce_record_id_uuid_instance_against_uuid_pk_passes_through():
+    u = uuid_mod.uuid4()
+    assert g._coerce_record_id(_UuidRec, u) == u
+
+
+async def test_approve_int_id_against_uuid_pk_returns_invalid_id_not_raw_exception(
+    gov_engine, monkeypatch
+):
+    factory = async_sessionmaker(gov_engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+
+    mcp = FastMCP("t")
+    g.register_governance_tools(mcp, {"uuid_rec": _UuidRec})
+
+    result = await mcp.call_tool("approve", {"record_type": "uuid_rec", "id": 5})
+    assert _data(result) == {"error": "invalid_id", "record_type": "uuid_rec", "id": 5}

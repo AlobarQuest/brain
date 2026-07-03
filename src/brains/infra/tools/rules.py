@@ -3,7 +3,12 @@ from fastmcp import FastMCP
 from src.brains.infra.models import Rule
 from src.brains.infra.repositories.rules import RuleRepository
 from src.core.db import get_session_factory
-from src.core.governance import finalize_governance, find_conflicts, proposed_defaults
+from src.core.governance import (
+    finalize_governance,
+    find_conflicts,
+    proposed_defaults,
+    require_approver,
+)
 
 
 def register_rule_tools(mcp: FastMCP) -> None:
@@ -153,7 +158,11 @@ def register_rule_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def restore_rule(id: int) -> dict:
-        """Restore (un-retire) a soft-deleted rule by id."""
+        """Restore (un-retire) a soft-deleted rule by id. APPROVER KEY ONLY — restore()
+        unconditionally reinstates status=approved, so a contributor-key caller must not be
+        able to reach approved via propose->delete->restore."""
+        if not require_approver():
+            return {"error": "not_authorized", "hint": "restore requires the approver key"}
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
             restored = await repo.restore(id)

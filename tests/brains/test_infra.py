@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+import src.brains.infra.seed as infra_seed_module
 import src.brains.infra.tools.combos as combos_tools_module
 import src.brains.infra.tools.lessons as lessons_tools_module
 import src.brains.infra.tools.rules as rules_tools_module
@@ -567,3 +568,178 @@ async def test_add_rule_overlap_conflict_is_advisory_and_approves_without_ack(
         assert overlap_rule.status == "approved"
         seed_rule = await session.get(Rule, seed_id)
         assert seed_rule.status == "approved"  # target row is never mutated
+
+
+# ---------------------------------------------------------------------------
+# restore_rule approver gate (final-review FIX 1) — closes the
+# propose -> delete -> restore self-approval bypass: RuleRepository.restore()
+# unconditionally sets status=approved, so restore_rule itself must be gated
+# behind the approver key, same as approve/reject/deprecate.
+# ---------------------------------------------------------------------------
+
+async def test_restore_rule_denied_without_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+    seed_id = await _seed_rule(infra_db, rule="gated-restore-rule", status="deprecated")
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("restore_rule", {"id": seed_id})
+    body = _data(result)
+    assert body == {"error": "not_authorized", "hint": "restore requires the approver key"}
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.status == "deprecated"  # unchanged — restore never ran
+
+
+async def test_restore_rule_succeeds_with_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: True)
+    seed_id = await _seed_rule(infra_db, rule="approved-restore-rule", status="deprecated")
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("restore_rule", {"id": seed_id})
+    body = _data(result)
+    assert body["restored"] is True
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.status == "approved"
+
+
+async def test_propose_delete_restore_cannot_reach_approved_without_approver_key(
+    infra_db, monkeypatch
+):
+    """Full self-approval-bypass regression: a contributor-key caller can add_rule
+    (-> proposed) and delete_rule (-> deprecated), but restore_rule must refuse to
+    flip it to approved without the approver key — the rule stays deprecated."""
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+
+    mcp = _infra_mcp()
+    added = await mcp.call_tool(
+        "add_rule",
+        {
+            "severity": "WARN",
+            "category": "deployment",
+            "rule": "bypass-attempt-rule",
+            "reason": "self-approval attempt",
+        },
+    )
+    new_id = _data(added)["id"]
+    assert _data(added)["status"] == "proposed"
+
+    deleted = await mcp.call_tool("delete_rule", {"id": new_id})
+    assert _data(deleted)["retired"] is True
+
+    restored = await mcp.call_tool("restore_rule", {"id": new_id})
+    assert _data(restored)["error"] == "not_authorized"
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, new_id)
+        assert rule.status == "deprecated"  # never reached approved
+
+
+# ---------------------------------------------------------------------------
+# Seeder governance stamp (final-review FIX 2) — seed.py inserts rules/combos/
+# lessons WITHOUT governance fields would otherwise land at the server default
+# status='proposed', invisible to every read tool on a fresh DB. Seed data is
+# curated, so it must land approved/informational.
+#
+# Exercised by running the real seed() function against fake repos/session
+# that capture what was passed, rather than a live SQLite DB: Version and
+# Combo both carry a Postgres ARRAY(Text) column (confirmed_in) which has no
+# generic SQLite bind processor (see _seed_lesson/_seed_combo's docstrings in
+# the governance test block above for the same pre-existing limitation) — a
+# real data.json row with a populated confirmed_in list cannot be inserted
+# against SQLite via the ORM at all, independent of this fix. Capturing the
+# actual dicts seed() builds and passes to the repositories/session exercises
+# the exact code path under test without touching that unrelated limitation.
+# ---------------------------------------------------------------------------
+
+class _FakeSeedSession:
+    def __init__(self):
+        self.added: list = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        pass
+
+
+async def test_seed_lands_rules_combos_lessons_as_approved(monkeypatch):
+    captured_rules: list[dict] = []
+    captured_lessons: list[dict] = []
+    fake_session = _FakeSeedSession()
+
+    class _FakeRuleRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def add_if_not_exists(self, data):
+            captured_rules.append(data)
+
+    class _FakeLessonRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def add_if_not_exists(self, data):
+            captured_lessons.append(data)
+
+    class _FakeComboRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_by_name(self, name):
+            return None  # every combo is "new" -> exercises the insert branch
+
+    class _FakeVersionRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_by_package(self, package):
+            return None
+
+        async def upsert(self, data):
+            pass  # versions are ungoverned; untouched by this fix
+
+    monkeypatch.setattr(infra_seed_module, "get_session_factory", lambda: (lambda: fake_session))
+    monkeypatch.setattr(infra_seed_module, "RuleRepository", _FakeRuleRepo)
+    monkeypatch.setattr(infra_seed_module, "LessonRepository", _FakeLessonRepo)
+    monkeypatch.setattr(infra_seed_module, "ComboRepository", _FakeComboRepo)
+    monkeypatch.setattr(infra_seed_module, "VersionRepository", _FakeVersionRepo)
+
+    await infra_seed_module.seed(skip_existing=True)
+
+    assert captured_rules, "seed must insert at least one rule"
+    assert captured_lessons, "seed must insert at least one lesson"
+    combos_added = [obj for obj in fake_session.added if isinstance(obj, Combo)]
+    assert combos_added, "seed must insert at least one combo"
+
+    for d in captured_rules:
+        assert d["status"] == "approved" and d["authority"] == "informational"
+        assert d["proposed_by"] == "seed" and d["reviewed_by"] == "seed"
+        assert d["reviewed_at"] is not None
+    for d in captured_lessons:
+        assert d["status"] == "approved" and d["authority"] == "informational"
+        assert d["proposed_by"] == "seed" and d["reviewed_by"] == "seed"
+        assert d["reviewed_at"] is not None
+    for c in combos_added:
+        assert c.status == "approved" and c.authority == "informational"
+        assert c.proposed_by == "seed" and c.reviewed_by == "seed"
+        assert c.reviewed_at is not None
+
+
+async def test_seed_governance_dicts_include_governance_keys():
+    """Belt-and-suspenders on the stamping helper itself: every governed record
+    type's insert dict carries the full governance stamp."""
+    stamp = infra_seed_module._seed_governance()
+    assert stamp["status"] == "approved"
+    assert stamp["authority"] == "informational"
+    assert stamp["proposed_by"] == "seed"
+    assert stamp["reviewed_by"] == "seed"
+    assert stamp["reviewed_at"] is not None

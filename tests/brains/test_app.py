@@ -596,3 +596,170 @@ async def test_delete_knowledge_still_yields_deprecated_status(app_db):
         assert row.status == "deprecated"
         assert row.superseded_by_id is None
         assert row.is_active is False
+
+
+# ---------------------------------------------------------------------------
+# Onboarding governance (final-review FIX 3 / FIX 4):
+#
+# FIX 3 — onboarded knowledge is curated content (Devon-decided): chunk writes
+# in run_onboarding_job must land status='approved'/authority='informational'/
+# proposed_by='onboard'/reviewed_by='onboard', not proposed (the background job
+# has no HTTP request context, so proposed_defaults' auto_approve could never
+# fire anyway).
+#
+# FIX 4 — deactivate_onboard_chunks must also set status='deprecated' (not just
+# is_active=False), consistent with deactivate(); combined with FIX 3, a
+# re-onboard (replace_existing=True) yields new approved+visible chunks and old
+# chunks deprecated+hidden — no knowledge blackout.
+# ---------------------------------------------------------------------------
+
+async def test_deactivate_onboard_chunks_sets_status_deprecated(app_db):
+    """FIX 4: deactivate_onboard_chunks must deprecate governance status, not just
+    flip is_active — an old onboard chunk must stop surfacing as 'approved'."""
+    from src.brains.app.repositories.knowledge import KnowledgeRepository
+
+    onboard_id = await _seed_knowledge(
+        app_db, app_slug="widget", knowledge_type="architecture",
+        source="onboard", status="approved", is_active=True,
+    )
+    # a manual/ai-capture chunk for the same app must be left untouched
+    manual_id = await _seed_knowledge(
+        app_db, app_slug="widget", knowledge_type="architecture",
+        source="ai-capture", status="approved", is_active=True,
+        content_hash="manual-hash",
+    )
+
+    async with app_db() as session:
+        repo = KnowledgeRepository(session)
+        count = await repo.deactivate_onboard_chunks("widget")
+        await session.commit()
+    assert count == 1
+
+    async with app_db() as session:
+        onboard_row = await session.get(AppKnowledge, onboard_id)
+        assert onboard_row.is_active is False
+        assert onboard_row.status == "deprecated"
+
+        manual_row = await session.get(AppKnowledge, manual_id)
+        assert manual_row.is_active is True
+        assert manual_row.status == "approved"  # untouched — only source='onboard' affected
+
+
+async def test_deactivate_onboard_chunks_excludes_given_ids(app_db):
+    """exclude_ids (e.g. newly created replacement chunks) must survive deactivation
+    with their governance status intact."""
+    from src.brains.app.repositories.knowledge import KnowledgeRepository
+
+    keep_id = await _seed_knowledge(
+        app_db, app_slug="widget", knowledge_type="architecture",
+        source="onboard", status="approved", is_active=True,
+    )
+
+    async with app_db() as session:
+        repo = KnowledgeRepository(session)
+        count = await repo.deactivate_onboard_chunks("widget", exclude_ids=[keep_id])
+        await session.commit()
+    assert count == 0
+
+    async with app_db() as session:
+        row = await session.get(AppKnowledge, keep_id)
+        assert row.is_active is True
+        assert row.status == "approved"
+
+
+@pytest.fixture
+def onboarding_env(app_db, monkeypatch):
+    """Wires run_onboarding_job's own module-level imports (get_session_factory,
+    classify_chunk, embed, extract_metadata, AppRepository) to the app_db SQLite
+    fixture and fast fakes, so the real onboarding write path runs end to end
+    without network calls or a physical apps table."""
+    import src.brains.app.services.onboarding as onboarding_module
+
+    class _FakeAppRepo:
+        def __init__(self, session):
+            pass
+
+        async def mark_onboarding_status(self, slug, status, error=None, onboarded_at=None):
+            pass  # no apps table in this fixture; onboarding's own write path is under test
+
+    async def fake_classify_chunk(content, hint):
+        return "architecture"
+
+    async def fake_embed(text):
+        return [0.1] * 1536  # AppKnowledge.embedding is Vector(1536); wrong dims raise ValueError
+
+    async def fake_extract_metadata(text):
+        return {"topics": [], "entities": [], "tags": []}
+
+    # run_onboarding_job reads get_settings().onboard_concurrency directly.
+    monkeypatch.setenv("BRAIN_TYPE", "app")
+    monkeypatch.setenv("MCP_ACCESS_KEY", "a" * 64)
+    monkeypatch.setenv("POSTGRES_HOST", "x")
+    monkeypatch.setenv("POSTGRES_USER", "x")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv("POSTGRES_DB", "x")
+
+    monkeypatch.setattr(onboarding_module, "get_session_factory", lambda: app_db)
+    monkeypatch.setattr(onboarding_module, "AppRepository", _FakeAppRepo)
+    monkeypatch.setattr(onboarding_module, "classify_chunk", fake_classify_chunk)
+    monkeypatch.setattr(onboarding_module, "embed", fake_embed)
+    monkeypatch.setattr(onboarding_module, "extract_metadata", fake_extract_metadata)
+    return onboarding_module
+
+
+async def test_onboarding_chunk_lands_approved(app_db, onboarding_env):
+    """FIX 3: a freshly-onboarded chunk lands status='approved', not proposed."""
+    app_id = uuid.uuid4()
+    result = await onboarding_env.run_onboarding_job(
+        app_id=app_id,
+        slug="widget",
+        provided_blobs={"readme.md": "Some short onboarding content about the widget app."},
+        replace_existing=False,
+    )
+    assert result["chunks_created"] == 1
+
+    async with app_db() as session:
+        rows = (
+            await session.execute(sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget"))
+        ).scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.status == "approved"
+    assert row.authority == "informational"
+    assert row.proposed_by == "onboard"
+    assert row.reviewed_by == "onboard"
+    assert row.reviewed_at is not None
+    assert row.source == "onboard"
+
+
+async def test_reonboard_replace_existing_no_blackout(app_db, onboarding_env):
+    """FIX 3 + FIX 4 together: a re-onboard (replace_existing=True) leaves the old
+    onboard chunk deprecated+hidden and the new chunk approved+visible — never a
+    window where neither is visible."""
+    app_id = uuid.uuid4()
+    first = await onboarding_env.run_onboarding_job(
+        app_id=app_id,
+        slug="widget",
+        provided_blobs={"readme.md": "First version of the widget app documentation."},
+        replace_existing=False,
+    )
+    assert first["chunks_created"] == 1
+
+    second = await onboarding_env.run_onboarding_job(
+        app_id=app_id,
+        slug="widget",
+        provided_blobs={"readme.md": "Second version of the widget app documentation, updated."},
+        replace_existing=True,
+    )
+    assert second["chunks_created"] == 1
+
+    async with app_db() as session:
+        rows = (
+            await session.execute(sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget"))
+        ).scalars().all()
+    assert len(rows) == 2
+    by_active = {row.is_active: row for row in rows}
+    old_row = by_active[False]
+    new_row = by_active[True]
+    assert old_row.status == "deprecated"
+    assert new_row.status == "approved"

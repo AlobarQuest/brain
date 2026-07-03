@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+import src.brains.code.seed as code_seed_module
 import src.brains.code.tools.exemplars as exemplars_tools_module
 import src.brains.code.tools.lessons as lessons_tools_module
 import src.brains.code.tools.roads as roads_tools_module
@@ -838,3 +839,90 @@ async def test_add_road_still_works_unchanged(code_db):
         assert road.status == "unpaved"
         assert not hasattr(road, "authority")
         assert not hasattr(road, "conflict_kind")
+
+
+# ---------------------------------------------------------------------------
+# Seeder governance stamp (final-review FIX 2) — src.brains.code.seed inserted
+# rules WITHOUT governance fields, landing at the server default
+# status='proposed' -> invisible to every read tool on a fresh DB. Seed data
+# is curated, so it must land approved/informational. Roads are NOT governed
+# (no GovernanceMixin) and must never receive these fields — exercised against
+# the real code_db SQLite fixture since neither Road nor code-brain Rule seed
+# rows carry a Postgres ARRAY column (unlike infra brain's Version/Combo).
+# ---------------------------------------------------------------------------
+
+def _sqlite_ddl_table_with_unique(
+    name: str, orm_table: sa.FromClause, metadata: sa.MetaData
+) -> sa.Table:
+    """Same as _sqlite_ddl_table, but also preserves each column's `unique` flag —
+    needed here (and only here) because seed()'s add_if_not_exists relies on a real
+    UNIQUE constraint for its ON CONFLICT (slug)/(rule) clause to resolve against."""
+    cols = [
+        sa.Column(
+            c.name,
+            sa.JSON() if isinstance(c.type, (JSONB, ARRAY)) else c.type,
+            primary_key=c.primary_key,
+            nullable=c.nullable,
+            unique=c.unique,
+            server_default=c.server_default,
+        )
+        for c in orm_table.columns
+    ]
+    return sa.Table(name, metadata, *cols)
+
+
+@pytest.fixture
+async def code_seed_db(monkeypatch):
+    """A dedicated SQLite engine (Road + Rule only, UNIQUE constraints preserved)
+    for exercising the real seed() function's ON CONFLICT DO NOTHING upserts."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    ddl_metadata = sa.MetaData()
+    _sqlite_ddl_table_with_unique(Road.__tablename__, Road.__table__, ddl_metadata)
+    _sqlite_ddl_table_with_unique(Rule.__tablename__, Rule.__table__, ddl_metadata)
+    async with engine.begin() as conn:
+        await conn.run_sync(ddl_metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(code_seed_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(rules_tools_module, "get_session_factory", lambda: factory)
+    yield factory
+    await engine.dispose()
+
+
+async def test_seed_lands_rules_as_approved_roads_stay_ungoverned(code_seed_db):
+    await code_seed_module.seed()
+
+    async with code_seed_db() as session:
+        roads = (await session.execute(sa.select(Road))).scalars().all()
+        rules = (await session.execute(sa.select(Rule))).scalars().all()
+
+    assert roads, "seed must insert at least one road"
+    assert rules, "seed must insert at least one rule"
+    for road in roads:
+        assert not hasattr(road, "status") or road.status in {
+            "paved", "partial", "unpaved", "paving"
+        }
+        assert not hasattr(road, "authority")  # roads are ungoverned
+    for rule in rules:
+        assert rule.status == "approved" and rule.authority == "informational"
+        assert rule.proposed_by == "seed" and rule.reviewed_by == "seed"
+        assert rule.reviewed_at is not None
+
+    # visible via the default (approved-only) read path with no governance flags
+    mcp = _code_mcp()
+    default_rules = await mcp.call_tool("get_rules", {"road_slug": "meta-discipline"})
+    assert len(_data(default_rules)["rules"]) == 2
+
+
+def test_seed_governance_dicts_include_governance_keys():
+    """Belt-and-suspenders on the stamping helper: the rule governance stamp
+    is complete, and roads never receive it (no GovernanceMixin columns)."""
+    stamp = code_seed_module._seed_governance()
+    assert stamp["status"] == "approved"
+    assert stamp["authority"] == "informational"
+    assert stamp["proposed_by"] == "seed"
+    assert stamp["reviewed_by"] == "seed"
+    assert stamp["reviewed_at"] is not None
