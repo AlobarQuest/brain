@@ -7,6 +7,8 @@ GovernanceMixin must not reference any concrete Base.
 from __future__ import annotations
 
 import hmac
+import json
+from dataclasses import dataclass
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -96,3 +98,69 @@ def require_approver() -> bool:
     from src.core.config import get_settings
 
     return approver_ok(presented_key(), get_settings().mcp_access_key)
+
+
+# --- conflict engine ------------------------------------------------------
+@dataclass(frozen=True)
+class ConflictFlag:
+    kind: str  # CONFLICT_DUPLICATE | CONFLICT_OVERLAP
+    note: str
+
+
+def normalized_check(check: dict | None) -> str | None:
+    """Canonical JSON of a machine check (sorted keys). None/empty → None."""
+    if not check:
+        return None
+    return json.dumps(check, sort_keys=True, separators=(",", ":"))
+
+
+def overlap_signature(candidate: dict, key_fields: tuple[str, ...]) -> tuple | None:
+    """Applicability signature, or None if any key field is missing/None
+    (a partial key is too coarse to flag)."""
+    if not key_fields:
+        return None
+    vals = [candidate.get(f) for f in key_fields]
+    if any(v is None for v in vals):
+        return None
+    return tuple(vals)
+
+
+async def find_conflicts(
+    session,
+    model,
+    *,
+    candidate_check: dict | None,
+    overlap_key_fields: tuple[str, ...],
+    candidate: dict,
+    exclude_id=None,
+) -> ConflictFlag | None:
+    """Flag a candidate against APPROVED, recommended|required records of the
+    same model. Layer 1 (duplicate, byte-identical normalized check) wins over
+    Layer 2 (applicability overlap). Only the candidate is flagged; no target
+    row is mutated. Runs pre-commit so the candidate is not its own target."""
+    stmt = sa.select(model).where(
+        model.status == STATUS_APPROVED,
+        model.authority.in_(AUTHORITATIVE),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(model.id != exclude_id)
+    rows = (await session.execute(stmt)).scalars().all()
+
+    cand_norm = normalized_check(candidate_check)
+    cand_key = overlap_signature(candidate, overlap_key_fields)
+    overlap_hit: ConflictFlag | None = None
+    for r in rows:
+        if cand_norm is not None and normalized_check(getattr(r, "check", None)) == cand_norm:
+            return ConflictFlag(
+                CONFLICT_DUPLICATE,
+                f"duplicate check of approved {model.__tablename__} #{r.id}",
+            )
+        if cand_key is not None and overlap_hit is None:
+            r_key = tuple(getattr(r, f, None) for f in overlap_key_fields)
+            if r_key == cand_key:
+                overlap_hit = ConflictFlag(
+                    CONFLICT_OVERLAP,
+                    f"overlaps approved {model.__tablename__} #{r.id}"
+                    f" on {list(overlap_key_fields)}",
+                )
+    return overlap_hit

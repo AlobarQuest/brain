@@ -52,3 +52,64 @@ def test_approver_ok():
     assert g.approver_ok(k, k) is True
     assert g.approver_ok("b" * 64, k) is False
     assert g.approver_ok(None, k) is False
+
+
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+
+def _norm(d):
+    return g.normalized_check(d)
+
+
+def test_normalized_check_is_key_order_independent():
+    assert _norm({"a": 1, "b": 2}) == _norm({"b": 2, "a": 1})
+    assert _norm(None) is None
+    assert _norm({}) is None
+
+
+def test_overlap_signature_skips_when_field_none():
+    assert g.overlap_signature({"category": "security", "source_app": None}, ("category", "source_app")) is None
+    assert g.overlap_signature({"category": "security", "source_app": "x"}, ("category", "source_app")) == ("security", "x")
+
+
+@pytest.mark.asyncio
+async def test_find_conflicts_duplicate_and_overlap():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(_Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    chk = {"kind": "forbidden_pattern", "scope": "tracked", "pattern": "P"}
+    async with Session() as s:
+        # an approved, required record is the only kind that is a conflict TARGET
+        s.add(_Rec(name="base", status="approved", authority="required",
+                   check=chk, category="security", source_app="app1"))
+        await s.commit()
+    async with Session() as s:
+        dup = await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
+                                     overlap_key_fields=("category", "source_app"),
+                                     candidate={"category": "security", "source_app": "app1"})
+        assert dup is not None and dup.kind == g.CONFLICT_DUPLICATE
+        over = await g.find_conflicts(s, _Rec, candidate_check={"kind": "x"},
+                                      overlap_key_fields=("category", "source_app"),
+                                      candidate={"category": "security", "source_app": "app1"})
+        assert over is not None and over.kind == g.CONFLICT_OVERLAP
+        none = await g.find_conflicts(s, _Rec, candidate_check={"kind": "y"},
+                                      overlap_key_fields=("category", "source_app"),
+                                      candidate={"category": "security", "source_app": "OTHER"})
+        assert none is None
+
+
+@pytest.mark.asyncio
+async def test_informational_record_is_not_a_target():
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(_Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    chk = {"kind": "forbidden_pattern", "pattern": "P"}
+    async with Session() as s:
+        s.add(_Rec(name="info", status="approved", authority="informational", check=chk))
+        await s.commit()
+    async with Session() as s:
+        assert await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
+                                      overlap_key_fields=(), candidate={}) is None
