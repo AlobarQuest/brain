@@ -1,9 +1,13 @@
+import uuid as uuid_mod
+
 import pytest
 import sqlalchemy as sa
+from fastmcp import FastMCP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+import src.core.db as db_module
 from src.core import governance as g
 
 
@@ -19,6 +23,17 @@ class _Rec(_Base, g.GovernanceMixin):
     check: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     category: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     source_app: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+
+class _UuidRec(_Base, g.GovernanceMixin):
+    """A small UUID-PK governed model, alongside int-PK _Rec, so approve/reject/deprecate's
+    id coercion is exercised for both PK shapes without depending on app-brain's test suite."""
+    __tablename__ = "uuid_recs"
+    __table_args__ = g.governance_check_constraints("uuid_recs")
+    id: Mapped[uuid_mod.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True), primary_key=True, default=uuid_mod.uuid4
+    )
+    name: Mapped[str] = mapped_column(sa.Text)
 
 
 @pytest.fixture
@@ -184,3 +199,95 @@ def test_finalize_governance_overlap_is_advisory():
     g.finalize_governance(d, g.ConflictFlag(g.CONFLICT_OVERLAP, "overlaps #1"))
     assert d["status"] == "approved"          # overlap does not block auto-approve
     assert d["conflict_kind"] == "overlap"
+
+
+# ---------------------------------------------------------------------------
+# _coerce_record_id / approve tool — int-PK and UUID-PK id coercion
+#
+# Regression coverage for the approve/reject/deprecate tools' `id: int | str`
+# signature (widened to support AppKnowledge's UUID PK): a stringified int id
+# ("5") must still coerce to int for an Integer-PK model (infra/code brains),
+# because asyncpg rejects a str bound against an Integer column.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+async def gov_engine():
+    engine = create_async_engine(
+        "sqlite+aiosqlite://", connect_args={"check_same_thread": False}
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(_Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+def _data(result) -> dict:
+    """Unwrap a mcp.call_tool() ToolResult's structured_content, which is typed Optional
+    even though every governance tool returns a dict (mirrors tests/brains/test_app.py)."""
+    assert result.structured_content is not None
+    return result.structured_content
+
+
+async def test_approve_coerces_stringified_int_id_for_integer_pk(gov_engine, monkeypatch):
+    factory = async_sessionmaker(gov_engine, expire_on_commit=False)
+    async with factory() as s:
+        s.add_all([
+            _Rec(name="x", status=g.STATUS_PROPOSED),
+            _Rec(name="y", status=g.STATUS_PROPOSED),
+        ])
+        await s.commit()
+
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+
+    mcp = FastMCP("t")
+    g.register_governance_tools(mcp, {"rec": _Rec})
+
+    # stringified int id ("1") must coerce to int and approve row 1 (not error)
+    stringified = await mcp.call_tool("approve", {"record_type": "rec", "id": "1"})
+    assert _data(stringified)["approved"] is True
+    assert _data(stringified)["status"] == "approved"
+
+    # native int id still works unchanged
+    native = await mcp.call_tool("approve", {"record_type": "rec", "id": 2})
+    assert _data(native)["approved"] is True
+
+    async with factory() as s:
+        row1 = await s.get(_Rec, 1)
+        row2 = await s.get(_Rec, 2)
+        assert row1 is not None and row1.status == g.STATUS_APPROVED
+        assert row2 is not None and row2.status == g.STATUS_APPROVED
+
+    # a non-numeric string returns the shared invalid_id error, same shape as a bad UUID
+    bad = await mcp.call_tool("approve", {"record_type": "rec", "id": "not-a-number"})
+    assert _data(bad) == {
+        "error": "invalid_id", "record_type": "rec", "id": "not-a-number"
+    }
+
+
+async def test_approve_coerces_uuid_string_id_for_uuid_pk(gov_engine, monkeypatch):
+    factory = async_sessionmaker(gov_engine, expire_on_commit=False)
+    async with factory() as s:
+        rec = _UuidRec(name="u", status=g.STATUS_PROPOSED)
+        s.add(rec)
+        await s.commit()
+        await s.refresh(rec)
+        rec_id = rec.id
+
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+
+    mcp = FastMCP("t")
+    g.register_governance_tools(mcp, {"uuid_rec": _UuidRec})
+
+    ok = await mcp.call_tool("approve", {"record_type": "uuid_rec", "id": str(rec_id)})
+    assert _data(ok)["approved"] is True
+
+    async with factory() as s:
+        row = await s.get(_UuidRec, rec_id)
+        assert row is not None and row.status == g.STATUS_APPROVED
+
+    bad = await mcp.call_tool("approve", {"record_type": "uuid_rec", "id": "not-a-uuid"})
+    assert _data(bad) == {
+        "error": "invalid_id", "record_type": "uuid_rec", "id": "not-a-uuid"
+    }

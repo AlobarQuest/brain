@@ -10,6 +10,7 @@ from src.core.governance import (
     STATUS_APPROVED,
     STATUS_DEPRECATED,
     STATUS_PROPOSED,
+    STATUS_SUPERSEDED,
 )
 
 
@@ -64,6 +65,18 @@ class KnowledgeRepository:
             update(AppKnowledge)
             .where(AppKnowledge.id == chunk_id, AppKnowledge.is_active == True)  # noqa: E712
             .values(is_active=False, status=STATUS_DEPRECATED)
+        )
+        return result.rowcount > 0
+
+    async def supersede(self, old_chunk_id: uuid.UUID, new_chunk_id: uuid.UUID) -> bool:
+        """Soft-delete the OLD row when a new chunk explicitly supersedes it (capture_knowledge's
+        supersedes_id path only — a plain delete_knowledge stays on deactivate()). Distinct from
+        deactivate(): status becomes 'superseded' (not 'deprecated'), and superseded_by_id points
+        at the replacement row, so the supersession chain is queryable."""
+        result = await self.session.execute(
+            update(AppKnowledge)
+            .where(AppKnowledge.id == old_chunk_id, AppKnowledge.is_active == True)  # noqa: E712
+            .values(is_active=False, status=STATUS_SUPERSEDED, superseded_by_id=new_chunk_id)
         )
         return result.rowcount > 0
 

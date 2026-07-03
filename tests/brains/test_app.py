@@ -545,3 +545,54 @@ async def test_capture_knowledge_overlap_conflict_is_advisory_and_approves_witho
         seed_row = await session.get(AppKnowledge, seed_id)
         assert seed_row.status == "approved"  # target row is never mutated
         assert seed_row.conflict_kind is None
+
+
+async def test_capture_knowledge_supersede_sets_superseded_status_and_backpointer(
+    app_db, fake_app_and_embeddings
+):
+    """A capture_knowledge call carrying supersedes_id must move the OLD row to the
+    distinct 'superseded' status (not 'deprecated') and back-point it at the new row via
+    superseded_by_id — status='superseded' is spec vocabulary, separate from a plain delete."""
+    old_id = await _seed_knowledge(
+        app_db,
+        app_slug="widget",
+        knowledge_type="deployment",
+        content="old deployment notes",
+        status="approved",
+    )
+
+    mcp = _app_mcp()
+    added = await mcp.call_tool(
+        "capture_knowledge",
+        {
+            "app_slug": "widget",
+            "knowledge_type": "deployment",
+            "content": "new deployment notes, replacing the old ones",
+            "supersedes_id": str(old_id),
+        },
+    )
+    body = _data(added)
+    assert body["duplicate"] is False
+    new_id = uuid.UUID(body["id"])
+
+    async with app_db() as session:
+        old_row = await session.get(AppKnowledge, old_id)
+        assert old_row.status == "superseded"
+        assert old_row.superseded_by_id == new_id
+        assert old_row.is_active is False
+
+
+async def test_delete_knowledge_still_yields_deprecated_status(app_db):
+    """A plain delete (no supersession) must keep going through deactivate(): status stays
+    'deprecated', and superseded_by_id is never set — supersede() is a distinct code path."""
+    chunk_id = await _seed_knowledge(app_db, app_slug="widget", knowledge_type="deployment")
+
+    mcp = _app_mcp()
+    result = await mcp.call_tool("delete_knowledge", {"id": str(chunk_id)})
+    assert _data(result)["deleted"] is True
+
+    async with app_db() as session:
+        row = await session.get(AppKnowledge, chunk_id)
+        assert row.status == "deprecated"
+        assert row.superseded_by_id is None
+        assert row.is_active is False

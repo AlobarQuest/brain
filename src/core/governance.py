@@ -208,11 +208,18 @@ def _coerce_record_id(model: type, id: int | str) -> int | str | uuid.UUID:
     Governed models use either an Integer PK (infra/code brains) or a UUID PK (app-brain's
     AppKnowledge). A UUID PK's id always arrives over MCP as a str, but SQLAlchemy's Uuid
     bind processor requires a real uuid.UUID instance (it calls .hex on the value) — passing
-    the raw string through to session.get() raises AttributeError. Integer PKs are returned
-    unchanged."""
+    the raw string through to session.get() raises AttributeError. An Integer PK's id can also
+    arrive as a str: the tool signature is `int | str` (to accommodate UUID-PK brains), and
+    under Pydantic v2 a JSON string like "5" is validated as str, not coerced to int — passing
+    it through unchanged to session.get() against an Integer column is rejected by asyncpg
+    (the prod driver). Native int ids pass through unchanged in both cases. A caller should
+    catch ValueError (raised by both uuid.UUID() and int() on a malformed string) and surface
+    the shared invalid_id error."""
     pk_type = sa.inspect(model).primary_key[0].type
     if isinstance(pk_type, sa.Uuid) and isinstance(id, str):
         return uuid.UUID(id)
+    if isinstance(pk_type, Integer) and isinstance(id, str):
+        return int(id)
     return id
 
 

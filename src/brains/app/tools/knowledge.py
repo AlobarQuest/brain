@@ -186,7 +186,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 superseded = await knowledge_repo.get_by_id(uuid.UUID(supersedes_id))
                 if not superseded or superseded.app_slug != app_slug:
                     return {"error": "invalid_params: supersedes_id must belong to the same app"}
-                await knowledge_repo.deactivate(uuid.UUID(supersedes_id))
+                await knowledge_repo.supersede(uuid.UUID(supersedes_id), chunk.id)
 
             await session.commit()
 
