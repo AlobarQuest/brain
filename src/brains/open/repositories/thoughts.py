@@ -6,6 +6,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.open.models import Thought
+from src.core.governance import AUTHORITY_INFORMATIONAL, STATUS_APPROVED
+
+# Sub-B (WS-1.4, approved): open thoughts are observations, not authority-bearing
+# knowledge — every captured thought lands pre-approved/informational, with no
+# proposed→approved gate and no conflict detection. Set explicitly here (not via
+# core.governance.proposed_defaults, which defaults new records to proposed).
+_THOUGHT_PROPOSED_BY = "mcp"
 
 
 class ThoughtRepository:
@@ -22,6 +29,9 @@ class ThoughtRepository:
             content=content,
             embedding=embedding,
             metadata_=metadata,
+            status=STATUS_APPROVED,
+            authority=AUTHORITY_INFORMATIONAL,
+            proposed_by=_THOUGHT_PROPOSED_BY,
         )
         self.session.add(thought)
         await self.session.flush()

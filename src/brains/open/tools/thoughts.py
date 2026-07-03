@@ -67,6 +67,9 @@ def register_thought_tools(mcp: FastMCP) -> None:
 
         async with get_session_factory()() as session:
             repo = ThoughtRepository(session)
+            # Sub-B: open thoughts are approved/informational observations; in-place
+            # approval/promotion is WS-6.2. No find_conflicts call — thoughts are
+            # excluded from conflict detection.
             await repo.create(
                 content=content,
                 embedding=embedding,
