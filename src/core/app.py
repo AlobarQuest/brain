@@ -68,6 +68,7 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
     app.add_middleware(
         make_auth_middleware(
             settings.mcp_access_key,
+            settings.contributor_key,
             brain.capabilities.auth_exact,
             brain.capabilities.auth_prefixes,
         )

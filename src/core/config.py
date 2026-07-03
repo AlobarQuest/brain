@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     brain_type: BrainType
     mcp_access_key: str
+    contributor_key: str | None = None
     log_level: str = "INFO"
     app_env: str = "production"
     port: int = 8000
@@ -33,6 +34,13 @@ class Settings(BaseSettings):
     def _hex64(cls, v: str) -> str:
         if not _HEX64.match(v):
             raise ValueError("mcp_access_key must be 64 lowercase hex chars")
+        return v
+
+    @field_validator("contributor_key")
+    @classmethod
+    def _contributor_hex64(cls, v: str | None) -> str | None:
+        if v is not None and not _HEX64.match(v):
+            raise ValueError("contributor_key must be 64 lowercase hex chars")
         return v
 
     def effective_database_url(self) -> str:
