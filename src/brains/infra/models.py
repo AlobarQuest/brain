@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, TIMESTAMP, Text, func
+from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.db import Base
+from src.core.governance import GovernanceMixin, governance_check_constraints
 
 
 class Version(Base):
@@ -24,10 +25,11 @@ class Version(Base):
     updated_by: Mapped[str] = mapped_column(Text, nullable=False, server_default="ai-capture")
 
 
-class Rule(Base):
+class Rule(Base, GovernanceMixin):
     __tablename__ = "rules"
     __table_args__ = (
         CheckConstraint("severity IN ('BLOCK', 'WARN', 'INFO')", name="rules_severity_check"),
+        *governance_check_constraints("rules"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -43,10 +45,13 @@ class Rule(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("rules.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("rules.id"), nullable=True)
 
 
-class Combo(Base):
+class Combo(Base, GovernanceMixin):
     __tablename__ = "combos"
+    __table_args__ = governance_check_constraints("combos")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
@@ -58,12 +63,15 @@ class Combo(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("combos.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("combos.id"), nullable=True)
 
 
-class Lesson(Base):
+class Lesson(Base, GovernanceMixin):
     __tablename__ = "lessons"
     __table_args__ = (
         CheckConstraint("severity IN ('CRITICAL', 'WARN', 'INFO')", name="lessons_severity_check"),
+        *governance_check_constraints("lessons"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -76,3 +84,5 @@ class Lesson(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="ai-capture")
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)

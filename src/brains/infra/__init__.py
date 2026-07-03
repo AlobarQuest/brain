@@ -1,10 +1,12 @@
-from src.core.registry import Capabilities
-from src.core.db import get_session_factory
+from src.brains.infra.models import Combo, Lesson, Rule
 from src.brains.infra.repositories.rules import RuleRepository
-from src.brains.infra.tools.rules import register_rule_tools
 from src.brains.infra.tools.combos import register_combo_tools
 from src.brains.infra.tools.lessons import register_lesson_tools
+from src.brains.infra.tools.rules import register_rule_tools
 from src.brains.infra.tools.versions import register_version_tools
+from src.core.db import get_session_factory
+from src.core.governance import register_governance_tools
+from src.core.registry import Capabilities
 
 capabilities = Capabilities(embeddings=False, auth_exact=("/api/health",), auth_prefixes=())
 
@@ -14,6 +16,7 @@ def register(mcp) -> None:
     register_rule_tools(mcp)
     register_combo_tools(mcp)
     register_lesson_tools(mcp)
+    register_governance_tools(mcp, {"rule": Rule, "lesson": Lesson, "combo": Combo})
 
 
 def register_routes(app) -> None:
@@ -47,6 +50,10 @@ def register_routes(app) -> None:
                         "check": r.check,
                         "retired_at": r.retired_at.isoformat() if r.retired_at else None,
                         "created_at": r.created_at.isoformat(),
+                        "status": r.status,
+                        "authority": r.authority,
+                        "applicability": r.applicability,
+                        "conflict": r.conflict_kind,
                     }
                     for r in rules
                 ]
