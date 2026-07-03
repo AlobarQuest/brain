@@ -21,3 +21,14 @@ def test_bad_access_key_rejected():
 def test_unknown_brain_type_rejected():
     with pytest.raises(ValueError):
         Settings(**{**BASE, "brain_type": "bogus"})
+
+def test_contributor_key_equal_to_mcp_access_key_rejected():
+    """A contributor_key equal to mcp_access_key would silently make every
+    contributor an approver — must be rejected at Settings construction."""
+    key = "c" * 64
+    with pytest.raises(ValueError, match="contributor_key must not equal mcp_access_key"):
+        Settings(**{**BASE, "mcp_access_key": key, "contributor_key": key})
+
+def test_contributor_key_different_from_mcp_access_key_accepted():
+    s = Settings(**{**BASE, "mcp_access_key": "a" * 64, "contributor_key": "b" * 64})
+    assert s.contributor_key == "b" * 64

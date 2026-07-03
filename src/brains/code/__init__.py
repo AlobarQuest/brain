@@ -5,19 +5,21 @@ for v1 (embeddings=False): structured roads/rules + keyword search.
 """
 from fastapi import HTTPException
 
-from src.core.registry import Capabilities
-from src.core.db import get_session_factory
+from src.brains.code.models import Exemplar, Lesson, Rule
+from src.brains.code.repositories.exemplars import ExemplarRepository
+from src.brains.code.repositories.lessons import LessonRepository
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
-from src.brains.code.repositories.lessons import LessonRepository
-from src.brains.code.repositories.exemplars import ExemplarRepository
 from src.brains.code.repositories.search import SearchRepository
+from src.brains.code.tools.exemplars import register_exemplar_tools
+from src.brains.code.tools.lessons import register_lesson_tools
 from src.brains.code.tools.roads import register_road_tools
 from src.brains.code.tools.rules import register_rule_tools
-from src.brains.code.tools.lessons import register_lesson_tools
-from src.brains.code.tools.exemplars import register_exemplar_tools
 from src.brains.code.tools.search import register_search_tools
-from src.brains.code.tools.serialize import road_dict, rule_dict, lesson_dict, exemplar_dict
+from src.brains.code.tools.serialize import exemplar_dict, lesson_dict, road_dict, rule_dict
+from src.core.db import get_session_factory
+from src.core.governance import register_governance_tools
+from src.core.registry import Capabilities
 
 capabilities = Capabilities(embeddings=False, auth_exact=("/api/health",), auth_prefixes=())
 
@@ -28,6 +30,7 @@ def register(mcp) -> None:
     register_lesson_tools(mcp)
     register_exemplar_tools(mcp)
     register_search_tools(mcp)
+    register_governance_tools(mcp, {"rule": Rule, "lesson": Lesson, "exemplar": Exemplar})
 
 
 def _road_rest(r) -> dict:
@@ -77,7 +80,7 @@ def register_routes(app) -> None:
                 "road": _road_rest(road),
                 "rules": [_rule_rest(r) for r in rules],
                 "exemplars": [exemplar_dict(e) for e in exemplars],
-                "lessons": [lesson_dict(l) for l in lessons],
+                "lessons": [lesson_dict(lesson) for lesson in lessons],
             }
 
     @app.get("/api/rules")
@@ -102,5 +105,5 @@ def register_routes(app) -> None:
             return {
                 "roads": [_road_rest(r) for r in results["roads"]],
                 "rules": [_rule_rest(r) for r in results["rules"]],
-                "lessons": [lesson_dict(l) for l in results["lessons"]],
+                "lessons": [lesson_dict(lesson) for lesson in results["lessons"]],
             }

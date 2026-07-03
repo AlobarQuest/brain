@@ -17,11 +17,27 @@ the two modes behave identically — there is no destructive overwrite path.
 import argparse
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
-from src.core.db import get_session_factory
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
+from src.core.db import get_session_factory
+from src.core.governance import AUTHORITY_INFORMATIONAL, STATUS_APPROVED
+
+
+def _seed_governance() -> dict:
+    """Governance stamp for seeded rules/lessons/exemplars (curated data — lands
+    approved/informational, not the server-default proposed, so it's visible on a
+    fresh DB via the default read path). Roads are NOT governed (no GovernanceMixin)
+    and must never receive these fields."""
+    return {
+        "status": STATUS_APPROVED,
+        "authority": AUTHORITY_INFORMATIONAL,
+        "proposed_by": "seed",
+        "reviewed_by": "seed",
+        "reviewed_at": datetime.now(timezone.utc),
+    }
 
 
 async def seed() -> None:
@@ -33,9 +49,12 @@ async def seed() -> None:
         roads_repo = RoadRepository(session)
         rules_repo = RuleRepository(session)
 
-        # Roads first — rules reference roads.slug.
+        # Roads first — rules reference roads.slug. Roads are ungoverned; no stamp.
         roads_inserted = sum([await roads_repo.add_if_not_exists(r) for r in roads])
-        rules_inserted = sum([await rules_repo.add_if_not_exists(r) for r in rules])
+        # Rules are governed — curated seed data lands approved/informational.
+        rules_inserted = sum(
+            [await rules_repo.add_if_not_exists({**r, **_seed_governance()}) for r in rules]
+        )
         await session.commit()
 
     print(

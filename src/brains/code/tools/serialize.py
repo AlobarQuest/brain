@@ -30,17 +30,25 @@ def rule_dict(r) -> dict:
         "good_example": r.good_example,
         "bad_example": r.bad_example,
         "retired_at": r.retired_at.isoformat() if r.retired_at else None,
+        "status": r.status,
+        "authority": r.authority,
+        "applicability": r.applicability,
+        "conflict": r.conflict_kind,
     }
 
 
-def lesson_dict(l) -> dict:
+def lesson_dict(lesson) -> dict:
     return {
-        "id": l.id,
-        "road_slug": l.road_slug,
-        "title": l.title,
-        "content": l.content,
-        "tags": l.tags or [],
-        "source_app": l.source_app,
+        "id": lesson.id,
+        "road_slug": lesson.road_slug,
+        "title": lesson.title,
+        "content": lesson.content,
+        "tags": lesson.tags or [],
+        "source_app": lesson.source_app,
+        "status": lesson.status,
+        "authority": lesson.authority,
+        "applicability": lesson.applicability,
+        "conflict": lesson.conflict_kind,
     }
 
 
@@ -51,4 +59,8 @@ def exemplar_dict(e) -> dict:
         "label": e.label,
         "location": e.location,
         "note": e.note,
+        "status": e.status,
+        "authority": e.authority,
+        "applicability": e.applicability,
+        "conflict": e.conflict_kind,
     }

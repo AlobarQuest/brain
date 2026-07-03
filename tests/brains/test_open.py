@@ -1,10 +1,19 @@
 """Tests for the open brain package: capabilities, tool registration, and embeddings wiring."""
+import uuid
+
 import pytest
+import sqlalchemy as sa
 from fastmcp import FastMCP
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
+from src.brains.open.models import Thought
 from src.core.config import BrainType
+from src.core.governance import GovernanceMixin
 from src.core.registry import Capabilities, load_brain
-
 
 # ---------------------------------------------------------------------------
 # Capabilities
@@ -130,3 +139,123 @@ async def test_capture_thought_uses_embeddings_client(monkeypatch):
     )
 
     assert not result.is_error
+
+
+# ---------------------------------------------------------------------------
+# Governance (WS-1.4) — Sub-B, deliberately asymmetric (approved): open's
+# thoughts are OBSERVATIONS, not authority-bearing knowledge. They are
+# governed for uniformity with the other three brains, but with NO in-place
+# approval gate and NO conflict detection — every thought lands pre-approved.
+# Promotion of a thought into a knowledge brain is WS-6.2, out of scope here.
+# ---------------------------------------------------------------------------
+
+def test_thought_has_governance_mixin_columns():
+    """The migration's columns must exist on the model (GovernanceMixin + UUID
+    supersession), mirroring AppKnowledge's typing."""
+    assert issubclass(Thought, GovernanceMixin)
+    cols = Thought.__table__.columns
+    for name in (
+        "status", "authority", "proposed_by", "owner", "reviewed_by", "reviewed_at",
+        "applicability", "version", "conflict_note", "conflict_kind",
+        "conflict_acknowledged_at",
+    ):
+        assert name in cols, f"missing governance column: {name}"
+    assert "supersedes_id" in cols
+    assert "superseded_by_id" in cols
+
+
+def test_open_registers_no_governance_tools():
+    """open-brain has no in-place approve/reject/deprecate gate (Sub-B) — promotion
+    to a knowledge brain is WS-6.2. EXPECTED_TOOLS above already pins the exact
+    tool set (no governance tools included); this test names the omission directly."""
+    assert not {"approve", "reject", "deprecate"} & EXPECTED_TOOLS
+
+
+def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData) -> sa.Table:
+    """Clone Thought's columns onto a throwaway MetaData for the SQLite test DDL,
+    substituting Postgres-only types (JSONB -> JSON, postgresql.UUID -> sa.Uuid, the
+    pgvector `embedding` column -> JSON). Mirrors tests/brains/test_app.py's helper —
+    see that module's docstring for the full rationale. Table constraints (self-FK,
+    CHECK) are intentionally not copied."""
+    cols = []
+    for c in orm_table.columns:
+        col_type = c.type
+        server_default = c.server_default
+        if isinstance(col_type, (JSONB, Vector)):
+            col_type = sa.JSON()
+            server_default = sa.text("'{}'") if server_default is not None else None
+        elif isinstance(col_type, PG_UUID):
+            col_type = sa.Uuid(as_uuid=True)
+            server_default = None
+        cols.append(
+            sa.Column(
+                c.name, col_type, primary_key=c.primary_key, nullable=c.nullable,
+                server_default=server_default,
+            )
+        )
+    return sa.Table(name, metadata, *cols)
+
+
+@pytest.fixture
+async def open_db(monkeypatch):
+    """A real async-SQLite engine wired into the open thought tool module (and
+    src.core.db's lazily-imported get_session_factory), so capture_thought's actual
+    insert runs end to end. Mirrors tests/brains/test_app.py's app_db fixture."""
+    import src.brains.open.tools.thoughts as thoughts_module
+    import src.core.db as db_module
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    ddl_metadata = sa.MetaData()
+    _sqlite_ddl_table(Thought.__tablename__, Thought.__table__, ddl_metadata)
+    async with engine.begin() as conn:
+        await conn.run_sync(ddl_metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # Thought.id relies on Postgres' gen_random_uuid() server_default, which SQLite
+    # cannot evaluate at INSERT time. Patch a client-side default for this fixture's
+    # duration — monkeypatch reverts it automatically at teardown.
+    monkeypatch.setattr(Thought.__table__.c.id, "default", sa.ColumnDefault(uuid.uuid4))
+
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(thoughts_module, "get_session_factory", lambda: factory)
+    yield factory
+    await engine.dispose()
+
+
+async def test_capture_thought_lands_approved_informational(open_db, monkeypatch):
+    """Sub-B: capture_thought must NOT use proposed_defaults (which defaults new
+    records to proposed) — every thought lands status='approved',
+    authority='informational', proposed_by='mcp', with no conflict flag."""
+    import src.brains.open.tools.thoughts as thoughts_module
+
+    fake_embedding = [0.1] * 1536
+
+    class FakeClient:
+        async def embed(self, text: str) -> list[float]:
+            return fake_embedding
+
+    async def fake_extract(text: str) -> dict:
+        return {"type": "observation", "topics": ["test"], "people": [], "action_items": []}
+
+    monkeypatch.setattr(thoughts_module, "get_settings", lambda: object())
+    monkeypatch.setattr(thoughts_module, "get_embeddings_client", lambda settings: FakeClient())
+    monkeypatch.setattr(thoughts_module, "_extract_metadata", fake_extract)
+
+    brain = load_brain(BrainType.OPEN)
+    mcp = FastMCP("t")
+    brain.register(mcp)
+
+    result = await mcp.call_tool("capture_thought", {"content": "hello governance"})
+    assert not result.is_error
+
+    async with open_db() as session:
+        rows = (await session.execute(sa.select(Thought))).scalars().all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == "approved"
+        assert row.authority == "informational"
+        assert row.proposed_by == "mcp"
+        assert row.conflict_kind is None
+        assert row.conflict_note is None

@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.db import Base
+from src.core.governance import GovernanceMixin, governance_check_constraints
 
 
 class App(Base):
@@ -45,8 +46,9 @@ class App(Base):
     )
 
 
-class AppKnowledge(Base):
+class AppKnowledge(Base, GovernanceMixin):
     __tablename__ = "app_knowledge"
+    __table_args__ = governance_check_constraints("app_knowledge")
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
@@ -64,6 +66,9 @@ class AppKnowledge(Base):
     )
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa.text("'mcp'"))
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_knowledge.id"), nullable=True
+    )
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_knowledge.id"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=sa.text("true"))

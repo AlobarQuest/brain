@@ -3,11 +3,18 @@ import pytest
 import httpx
 
 from fastapi import FastAPI
+from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
+from starlette.routing import Route
+from starlette.testclient import TestClient
 
 from src.core.auth import make_auth_middleware
 
 KEY = "a" * 64
 EXACT = ("/api/health",)
+
+APPROVER = "a" * 64
+CONTRIB = "b" * 64
 
 
 def build_app() -> FastAPI:
@@ -116,3 +123,27 @@ async def test_prefix_match_exempts_subpath():
         resp = await client.get("/.well-known/jwks.json")
 
     assert resp.status_code == 200, "/.well-known/jwks.json should be exempt via prefix"
+
+
+def _client(contributor_key=None):
+    async def ok(request):
+        return PlainTextResponse("ok")
+    app = Starlette(routes=[Route("/x", ok)])
+    app.add_middleware(make_auth_middleware(APPROVER, contributor_key, ("/health",), ()))
+    return TestClient(app)
+
+
+def test_approver_key_accepted():
+    assert _client().get("/x", headers={"x-brain-key": APPROVER}).status_code == 200
+
+
+def test_no_key_rejected():
+    assert _client().get("/x").status_code == 401
+
+
+def test_contributor_key_accepted_when_configured():
+    assert _client(CONTRIB).get("/x", headers={"x-brain-key": CONTRIB}).status_code == 200
+
+
+def test_contributor_key_rejected_when_not_configured():
+    assert _client(None).get("/x", headers={"x-brain-key": CONTRIB}).status_code == 401

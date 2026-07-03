@@ -5,18 +5,21 @@ Revises:
 Create Date: 2026-06-30
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
-_CATEGORIES = "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', 'security', 'ai'"
+_CATEGORIES = (
+    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', "
+    "'security', 'ai'"
+)
 _STATUSES = "'paved', 'partial', 'unpaved', 'paving'"
 
 
@@ -35,8 +38,18 @@ def upgrade() -> None:
         sa.Column("adr_ref", sa.Text(), nullable=True),
         sa.Column("last_validated_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("validation_note", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.CheckConstraint(f"category IN ({_CATEGORIES})", name="roads_category_check"),
         sa.CheckConstraint(f"status IN ({_STATUSES})", name="roads_status_check"),
     )
@@ -54,7 +67,12 @@ def upgrade() -> None:
         sa.Column("good_example", sa.Text(), nullable=True),
         sa.Column("bad_example", sa.Text(), nullable=True),
         sa.Column("retired_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.CheckConstraint("severity IN ('BLOCK', 'WARN', 'INFO')", name="rules_severity_check"),
     )
 
@@ -66,7 +84,12 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("tags", postgresql.ARRAY(sa.Text()), nullable=True),
         sa.Column("source_app", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
     )
 
     op.create_table(
@@ -76,7 +99,12 @@ def upgrade() -> None:
         sa.Column("label", sa.Text(), nullable=False),
         sa.Column("location", sa.Text(), nullable=False),
         sa.Column("note", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
     )
 
 

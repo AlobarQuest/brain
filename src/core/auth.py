@@ -22,13 +22,17 @@ from starlette.types import ASGIApp
 
 def make_auth_middleware(
     access_key: str,
+    contributor_key: str | None = None,
     exact: tuple[str, ...] = ("/api/health",),
     prefixes: tuple[str, ...] = (),
 ) -> type[BaseHTTPMiddleware]:
     """Return a configured auth-middleware class ready for ``app.add_middleware()``.
 
     Args:
-        access_key: The expected secret value (compared via ``hmac.compare_digest``).
+        access_key:      The approver secret value (compared via ``hmac.compare_digest``).
+        contributor_key: Optional lower-privilege secret value, also accepted when set.
+                          When ``None`` (the default), only ``access_key`` authenticates —
+                          behavior is identical to the single-key middleware.
         exact:      Tuple of paths that bypass authentication via EXACT match only.
                     ``/register`` in ``exact`` exempts ``/register`` but NOT ``/register/foo``.
         prefixes:   Tuple of path prefixes that bypass authentication via startswith.
@@ -38,6 +42,7 @@ def make_auth_middleware(
         A ``BaseHTTPMiddleware`` subclass (not an instance) so that
         ``app.add_middleware(<class>)`` works without extra arguments.
     """
+    valid_keys = tuple(k for k in (access_key, contributor_key) if k)
 
     class BrainKeyMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -50,7 +55,7 @@ def make_auth_middleware(
                 return await call_next(request)
 
             provided = request.headers.get("x-brain-key") or request.query_params.get("key")
-            if not provided or not hmac.compare_digest(provided, access_key):
+            if not provided or not any(hmac.compare_digest(provided, k) for k in valid_keys):
                 return JSONResponse(
                     content={"error": "Invalid or missing access key"},
                     status_code=401,
