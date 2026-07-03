@@ -48,10 +48,18 @@ Governance applies to **knowledge-record** tables only:
 | infra | `rules`, `lessons`, `combos` |
 | app | `app_knowledge` |
 | open | `thoughts` |
-| code | `roads`, `rules`, `lessons`, `exemplars` |
+| code | `rules`, `lessons`, `exemplars` |
 
-**Excluded** (operational inventory, not authoritative knowledge): infra `versions` (package pins),
-app `apps` (application registry).
+**Excluded** (operational inventory / organizational catalog, not authoritative knowledge): infra
+`versions` (package pins), app `apps` (application registry), **code `roads`** (the paved-road
+*catalog* that rules/exemplars attach to — the code-brain analogue of `apps`). `roads` is excluded for
+two reinforcing reasons, decided 2026-07-03 during build: (1) principled — it is a registry/catalog,
+not an authority-bearing knowledge record; (2) mechanical — `roads` already owns a domain `status`
+column (paving state: `paved`/`partial`/`unpaved`/`paving`, with its own CHECK, 51 seeded rows, in
+`list_roads`/`road_dict`/`/api/roads`/tests) that collides irreconcilably with the governance
+lifecycle `status`. Consequence: `add_road` remains direct-write (not propose-only); `road_dict` does
+**not** gain governance fields; the code migration touches only `rules`/`lessons`/`exemplars`;
+`register_governance_tools` is wired for `{"rule","lesson","exemplar"}` only.
 
 ## 4. Governance columns — `GovernanceMixin`
 
