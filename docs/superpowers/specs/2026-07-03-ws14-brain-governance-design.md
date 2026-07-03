@@ -68,7 +68,9 @@ A `Base`-agnostic declarative mixin in `src/core/governance.py`, mixed into ever
 | `reviewed_at` | timestamptz NULL | — | approval timestamp |
 | `applicability` | JSONB NOT NULL | `'{}'` | structured scope; drives conflict key + consumer filtering |
 | `version` | integer NOT NULL | `1` | record version (bumped on material change; future) |
-| `conflict_note` | text NULL | — | set when a write is flagged; cleared on approval-with-ack |
+| `conflict_note` | text NULL | — | human-readable flag set on a **proposal** at write (refs matched ids); **never cleared** — preserved as provenance |
+| `conflict_kind` | text NULL | — | `duplicate` (Layer 1) or `overlap` (Layer 2), NULL if unflagged; drives the ack gate (CHECK) |
+| `conflict_acknowledged_at` | timestamptz NULL | — | set when an approver approves over a `duplicate` flag; note is kept, not nulled |
 
 **Supersession** is **not** in the mixin (self-FK type differs by table): each governed model adds
 `supersedes_id` / `superseded_by_id` typed to its own PK (int for infra/code, UUID for app/open).
@@ -125,11 +127,14 @@ structural, not argument-trust.
 ### 5.4 New governance tools (per governed brain)
 
 - `approve(record_type, id, acknowledge_conflict: bool = False)` — approver-gated. proposed→approved,
-  stamps `reviewed_by`/`reviewed_at`. If the record has a `conflict_note` set, approval **requires**
-  `acknowledge_conflict=True` (else returns `{"error":"conflict_unacknowledged", ...}`); on ack, the
-  note is cleared and the approval proceeds.
-- `reject(record_type, id, reason)` — approver-gated. proposed→deprecated (records reason in
-  `conflict_note`/audit). Idempotent.
+  stamps `reviewed_by`/`reviewed_at`. If the record carries a **`conflict_kind='duplicate'`** flag that
+  is not yet acknowledged (`conflict_acknowledged_at IS NULL`), approval **requires**
+  `acknowledge_conflict=True` (else returns `{"error":"conflict_unacknowledged", "conflict_note": ...}`);
+  on ack, `conflict_acknowledged_at` is stamped and the **note is preserved** (provenance of a contested
+  approval). A `conflict_kind='overlap'` flag is **advisory only** and never blocks approval.
+- `reject(record_type, id, reason)` — approver-gated. proposed→deprecated. The reason is **appended**
+  to `conflict_note` (prefixed `REJECTED:`), preserving any existing conflict flag rather than
+  clobbering it. Idempotent.
 - `deprecate(record_type, id)` — approver-gated. approved→deprecated (retires a live record;
   complements the existing `retire_rule`/`delete_*` soft-deletes, which now also set
   `status='deprecated'`).
@@ -184,56 +189,77 @@ WS-6.2. Existing thoughts backfill to `approved/informational`.
 
 ## 7. Conflict detection (reviewed-hard section)
 
-Routed through an independent Opus-4.8-max review before build (Fable unavailable).
+Sharpened after an independent Opus-4.8-max adversarial review (Fable unavailable). The prior draft's
+"machine-directive contradiction" layer was unbuildable against the real `check` shapes
+(`forbidden_pattern` has no polarity/expected-value axis) and mutated approved target rows; both are
+fixed below.
 
 ### 7.1 Semantics
 
-A new/edited governed record computes a **conflict key** `(record_type, canonical(applicability))`.
-At write time (propose or auto_approve), the system searches for an existing **approved** record of
-the same `record_type` at authority **`recommended` or `required`** whose conflict key **matches**. If
-found, the write **still succeeds** (accept-as-proposed) but both the new record and each matched
-record get a `conflict_note` describing the overlap. **Never reject.** Resolution happens at Devon's
-approval gate: approving a flagged record requires `acknowledge_conflict=True` (§5.4).
+At write time (propose, or approver `auto_approve`), a governed record is matched against existing
+**approved** records of the **same `record_type`** at authority **`recommended` or `required`** (only
+authoritative records are conflict *targets*, keeping noise proportional to authority). Detection runs
+**pre-commit**, before the new record is visible, so a record is never its own target. The write
+**always succeeds** (accept-as-proposed / accept-and-auto-approve). **Only the new proposal is
+flagged** — the matched approved record is **never mutated** (avoids a low-trust proposer writing an
+authoritative row, lost-update contention on a scalar note, and audit-provenance muddying).
 
-Two match layers, strongest first:
+Two independent layers:
 
-1. **Machine-directive contradiction (strong):** both records carry a `check` referencing the **same
-   target** (same `check.pattern`/`check.scope`, or same `check` engine target key) but an
-   **incompatible assertion** (e.g. different expected value, opposite polarity). This is a genuine,
-   low-noise contradiction.
-2. **Applicability overlap (advisory):** the canonical applicability signatures are equal (§7.2).
-   Signals "another authoritative record already governs this scope — review," without claiming
-   semantic contradiction.
+1. **Duplicate (Layer 1 — ack-gated).** The new record carries a `check`, and an approved
+   `recommended`/`required` record of the same type carries a **byte-identical normalized `check`**
+   (JSON with sorted keys). This means "you are re-adding a directive the scanner already enforces."
+   Decidable and low-noise. Sets `conflict_kind='duplicate'`; approving over it requires
+   `acknowledge_conflict=True` (§5.4). (Exact-duplicate *prose* rules are already prevented by the
+   existing `rule`/`title` UNIQUE constraints — Layer 1 covers the checked-directive case they miss.)
+2. **Overlap (Layer 2 — advisory).** The canonical applicability signatures (§7.2) are equal but the
+   checks are **not** identical. Signals "another authoritative record governs this scope — review,"
+   without claiming contradiction. Sets `conflict_kind='overlap'`; it is **surfaced in the write
+   response and stored in `conflict_note`**, but does **not** block approval.
 
-Informational records never *trigger* a flag against them (only `recommended`/`required` approved
-records are conflict targets), which keeps noise proportional to authority. A proposing record of any
-authority can *receive* a flag.
+True *contradiction* detection (a `required_pattern` vs `forbidden_pattern` on identical scope, or a
+`config_value{expected}` shape with differing expected values) is **deferred** — no check shape in the
+corpus has a polarity/expected axis, so shipping it now would be hand-waving. When such a shape is
+introduced, add a Layer-1b pair and spec it explicitly.
 
 ### 7.2 Canonical applicability signature (per record type)
 
-| record type | `applicability` canonical key |
-|---|---|
-| infra `rule` | `{category, source_app?}` |
-| code `rule` | `{road_slug, category}` |
-| app_knowledge | `{app_slug, knowledge_type}` |
-| infra/code `lesson` | `{road_slug?}` + tag-set overlap (advisory only) |
-| infra `combo` | `{name, ecosystem}` |
-| code `road` | `{slug}` (slug already unique → effectively no cross-record conflict) |
-| code `exemplar` | `{road_slug}` (advisory only) |
-| open `thought` | — (excluded) |
+Conflict detection is scoped to the **record types that can bear a directive and reach
+`recommended`/`required`** authority. Lessons, combos, exemplars, roads, and thoughts are **excluded**
+from conflict detection (they migrate `informational`, have no directive to duplicate, and no
+authoritative targets post-migration — including them would be dead, noisy, or ill-defined).
 
-The conflict-key + match logic lives in `src/core/governance.py` (`conflict_key(record)`,
+| record type | Layer-1 duplicate key | Layer-2 overlap signature |
+|---|---|---|
+| infra `rule` | normalized `check` (skip if `check IS NULL`) | `{category, source_app}` — **skip if `source_app IS NULL`** (bare category is too coarse to flag) |
+| code `rule` | normalized `check` (skip if `check` kind=`judgment`/NULL) | `{road_slug, category}` |
+| app_knowledge | — (no `check`) | `{app_slug, knowledge_type}` |
+
+The logic lives in `src/core/governance.py` (`normalized_check(record)`, `conflict_key(record)`,
 `find_conflicts(session, record)`), parameterized per record type by a small per-brain descriptor, so
-the four brains share one implementation.
+the brains share one implementation.
 
-### 7.3 Demonstrated test case (exit criterion)
+**Live coverage at ship (honest scope):** the migration produces **~4 `required` targets, all infra
+`category='security'` rules, and zero `recommended` targets** (§6.2). Therefore `find_conflicts` can
+actually fire **only for infra rules** at ship; code-brain and app-brain have **no** authoritative
+targets until a future record is approved to `recommended`/`required` there (the only paths that grow
+the target pool are `approve`-to-authority and approver `auto_approve` to authority — nothing in this
+WS seeds `recommended`). The spec does not imply portfolio-wide live coverage on day one.
 
-A real flag must be demonstrated. Canonical test: seed an **approved, `required`** infra security rule
-with a `forbidden_pattern` check on target T; propose a second rule in `category='security'` whose
-`check` targets the same T with an incompatible pattern → `find_conflicts` returns the first; the new
-record and the existing one both carry a `conflict_note`; `approve` of the new record without
-`acknowledge_conflict` is refused, with it succeeds. A second (advisory-layer) test: two code rules
-sharing `road_slug+category`, one approved/required, the proposal flagged.
+### 7.3 Demonstrated test cases (exit criterion)
+
+Demonstrated against a **real migrated `required` rule**, not only a synthetic fixture:
+
+- **Duplicate (Layer 1, ack-gated):** with a migrated approved `required` infra BWS rule in place
+  (e.g. `bws.no-token-in-tracked-files`, check `{"kind":"forbidden_pattern","scope":"tracked",
+  "pattern":"..."}`), propose a new infra security rule whose normalized `check` is **identical** →
+  the new proposal gets `conflict_kind='duplicate'` and a `conflict_note` referencing the matched id;
+  the matched rule is **unchanged**; `approve` without `acknowledge_conflict` is **refused**; with it,
+  approval succeeds, `conflict_acknowledged_at` is stamped, and the note is **preserved**.
+- **Overlap (Layer 2, advisory):** propose a second infra security rule with the **same
+  `{category, source_app}`** as an approved `required` rule but a **different** `check` → the proposal
+  gets `conflict_kind='overlap'` and a surfaced note, and `approve` (no ack) **succeeds** (advisory,
+  non-blocking).
 
 ## 8. Safe retrieval & consumer filtering (§3.7)
 
@@ -261,7 +287,8 @@ CI; per the "a check that runs nowhere is a lie" lesson we do not declare one). 
   ignored); `require_approver()` rejects the contributor key and the no-key path.
 - approve/reject/deprecate transitions; approve of a flagged record blocked without ack.
 - safe-retrieval default (approved only); `include_proposed` and `min_authority` filters.
-- conflict detection: both the strong (machine-directive) and advisory tests from §7.3.
+- conflict detection: the duplicate (Layer 1, ack-gated) and overlap (Layer 2, advisory) tests from
+  §7.3, including that the matched approved record is left unmutated and the note is preserved on ack.
 - a migration-shape test: apply the governance columns against a throwaway `pgvector:pg16` (see §10)
   and assert backfill counts — run in the pre-merge migration harness, not necessarily in CI.
 
@@ -291,14 +318,17 @@ CI; per the "a check that runs nowhere is a lie" lesson we do not declare one). 
 - [ ] Agents (contributor key) can only **propose**; **approval is approver-key-only**, enforced in
       `auth.py`/`require_approver()` (structural, not argument-trust).
 - [ ] Retrieval defaults to approved and can filter by `authority` (§3.7 consumer path).
-- [ ] A same-applicability contradiction is **flagged at write** — demonstrated by the §7.3 tests.
+- [ ] A same-applicability conflict is **flagged at write** (proposal-only) — demonstrated by the §7.3
+      duplicate + overlap tests against a **real migrated `required` rule**; detection is live for infra
+      rules at ship (§7.2 honest-scope note).
 - [ ] All four brains migrated live and their MCP tools verified post-migration (§10).
 - [ ] Phase 1 exit checklist can then be written (identities WS-1.2 + audit WS-1.1 + contract WS-1.3 +
       governed knowledge WS-1.4).
 
 ## 12. Files touched (map)
 
-- **new:** `src/core/governance.py` (mixin, `require_approver`, conflict-key/`find_conflicts`, tool
+- **new:** `src/core/governance.py` (mixin incl. `conflict_kind`/`conflict_acknowledged_at`,
+  `require_approver`, `normalized_check`/`conflict_key`/`find_conflicts`, approve/reject/deprecate tool
   factory), `src/core/__init__` export as needed.
 - **config/auth:** `src/core/config.py` (+`contributor_key`), `src/core/auth.py` (accept both keys +
   record tier).
