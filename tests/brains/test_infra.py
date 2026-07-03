@@ -4,15 +4,16 @@ import importlib
 import pytest
 import sqlalchemy as sa
 from fastmcp import FastMCP
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+import src.brains.infra.tools.combos as combos_tools_module
 import src.brains.infra.tools.lessons as lessons_tools_module
 import src.brains.infra.tools.rules as rules_tools_module
 import src.core.db as db_module
 import src.core.governance as governance_module
-from src.brains.infra.models import Rule
+from src.brains.infra.models import Combo, Lesson, Rule
 from src.core.config import BrainType
 from src.core.registry import Capabilities, load_brain
 
@@ -221,15 +222,18 @@ async def test_api_rules_returns_rules_with_key(monkeypatch):
 
 def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData) -> sa.Table:
     """Clone an ORM table's columns onto a throwaway MetaData for the SQLite
-    test DDL, substituting the Postgres-only JSONB type for portable JSON
-    (SQLite's DDL compiler cannot render JSONB). ORM inserts/selects still
-    compile against the real mapped table's column types (JSONB's Python-level
-    (de)serialization works fine cross-dialect) — only CREATE TABLE needs the
-    substitution."""
+    test DDL, substituting Postgres-only types (JSONB, ARRAY) for portable JSON
+    (SQLite's DDL compiler cannot render either). ORM inserts/selects still
+    compile against the real mapped table's column types (JSONB's and ARRAY's
+    Python-level (de)serialization works fine cross-dialect) — only CREATE TABLE
+    needs the substitution. NOTE: this copies column types only, not table
+    constraints (UNIQUE, self-FK, CHECK) — the clone will accept rows the real
+    Postgres schema would reject; extend it if a test needs those constraints
+    enforced."""
     cols = [
         sa.Column(
             c.name,
-            sa.JSON() if isinstance(c.type, JSONB) else c.type,
+            sa.JSON() if isinstance(c.type, (JSONB, ARRAY)) else c.type,
             primary_key=c.primary_key,
             nullable=c.nullable,
             server_default=c.server_default,
@@ -260,6 +264,8 @@ async def infra_db(monkeypatch):
     )
     ddl_metadata = sa.MetaData()
     _sqlite_ddl_table(Rule.__tablename__, Rule.__table__, ddl_metadata)
+    _sqlite_ddl_table(Lesson.__tablename__, Lesson.__table__, ddl_metadata)
+    _sqlite_ddl_table(Combo.__tablename__, Combo.__table__, ddl_metadata)
     async with engine.begin() as conn:
         await conn.run_sync(ddl_metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -267,6 +273,7 @@ async def infra_db(monkeypatch):
     monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
     monkeypatch.setattr(rules_tools_module, "get_session_factory", lambda: factory)
     monkeypatch.setattr(lessons_tools_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(combos_tools_module, "get_session_factory", lambda: factory)
     yield factory
     await engine.dispose()
 
@@ -300,6 +307,124 @@ async def _seed_rule(factory, **overrides) -> int:
         await session.commit()
         await session.refresh(rule)
         return rule.id
+
+
+async def _seed_lesson(factory, **overrides) -> int:
+    """Insert a Lesson row directly (bypassing add_lesson), for seeding fixed-status rows.
+    tags defaults to None (not []): Lesson.tags is a Postgres ARRAY column with no generic
+    SQLite bind-processor, so a Python list fails to bind against the test's SQLite engine.
+    Uses a Core insert() rather than constructing the ORM object: the ORM's flush path
+    applies the column's Python-side `default=list` whenever the attribute value is None
+    (even when None was explicitly passed), which would re-introduce the list-bind failure;
+    Core insert().values(...) binds exactly what is given."""
+    defaults = dict(
+        app=None,
+        title="seed-lesson",
+        content="seed content",
+        tags=None,
+        severity="INFO",
+        source="ai-capture",
+        status="approved",
+        authority="informational",
+        applicability={},
+        version=1,
+    )
+    defaults.update(overrides)
+    async with factory() as session:
+        result = await session.execute(
+            sa.insert(Lesson).values(**defaults).returning(Lesson.id)
+        )
+        new_id = result.scalar_one()
+        await session.commit()
+        return new_id
+
+
+async def _seed_combo(factory, **overrides) -> int:
+    """Insert a Combo row directly (no add_combo tool exists), for seeding fixed-status rows.
+    confirmed_in defaults to None (not []): Combo.confirmed_in is a Postgres ARRAY column with
+    no generic SQLite bind-processor, so a Python list fails to bind against the test's SQLite
+    engine. Uses a Core insert() for the same reason as _seed_lesson above."""
+    defaults = dict(
+        name="seed-combo",
+        description="seed description",
+        packages={},
+        ecosystem="python",
+        flavor=None,
+        confirmed_in=None,
+        status="approved",
+        authority="informational",
+        applicability={},
+        version=1,
+    )
+    defaults.update(overrides)
+    async with factory() as session:
+        result = await session.execute(
+            sa.insert(Combo).values(**defaults).returning(Combo.id)
+        )
+        new_id = result.scalar_one()
+        await session.commit()
+        return new_id
+
+
+async def test_search_lessons_excludes_deprecated_by_default(infra_db):
+    await _seed_lesson(
+        infra_db, title="dep-lesson", content="deprecated content", status="deprecated"
+    )
+    approved_id = await _seed_lesson(
+        infra_db, title="live-lesson", content="live content", status="approved"
+    )
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("search_lessons", {"query": "content"})
+    ids = {lesson["id"] for lesson in _data(result)["lessons"]}
+    assert ids == {approved_id}
+
+
+async def test_search_lessons_include_proposed_surfaces_proposed_lesson(infra_db):
+    # Seeded directly (not via add_lesson): Lesson.tags is a Postgres ARRAY column that
+    # add_lesson's `tags or []` default cannot bind against the test's SQLite engine (see
+    # _seed_lesson's docstring). The behavior under test is search_lessons' status filter,
+    # which is exercised identically regardless of how the row was inserted.
+    new_id = await _seed_lesson(
+        infra_db, title="prop-lesson", content="proposed content", status="proposed"
+    )
+
+    mcp = _infra_mcp()
+    default = await mcp.call_tool("search_lessons", {"query": "proposed content"})
+    assert new_id not in {lesson["id"] for lesson in _data(default)["lessons"]}
+
+    with_proposed = await mcp.call_tool(
+        "search_lessons", {"query": "proposed content", "include_proposed": True}
+    )
+    ids = {lesson["id"] for lesson in _data(with_proposed)["lessons"]}
+    assert new_id in ids
+    surfaced = next(lesson for lesson in _data(with_proposed)["lessons"] if lesson["id"] == new_id)
+    assert surfaced["status"] == "proposed"
+
+
+async def test_list_combos_excludes_deprecated_by_default(infra_db):
+    await _seed_combo(infra_db, name="dep-combo", status="deprecated")
+    approved_id = await _seed_combo(infra_db, name="live-combo", status="approved")
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("list_combos", {})
+    ids = {c["name"] for c in _data(result)["combos"]}
+    assert "dep-combo" not in ids
+    live = next(c for c in _data(result)["combos"] if c["name"] == "live-combo")
+    assert live["status"] == "approved"
+    assert approved_id  # sanity: seed succeeded
+
+
+async def test_list_combos_include_proposed_includes_proposed_combo(infra_db):
+    await _seed_combo(infra_db, name="proposed-combo", status="proposed")
+
+    mcp = _infra_mcp()
+    default = await mcp.call_tool("list_combos", {})
+    assert "proposed-combo" not in {c["name"] for c in _data(default)["combos"]}
+
+    with_proposed = await mcp.call_tool("list_combos", {"include_proposed": True})
+    names = {c["name"] for c in _data(with_proposed)["combos"]}
+    assert "proposed-combo" in names
 
 
 async def test_add_rule_is_proposed_by_default(infra_db):

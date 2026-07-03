@@ -13,12 +13,25 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         app: str | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
     ) -> dict:
-        """Search lessons by keyword across titles and content. Always call this before working on a known-problematic area to check for prior lessons learned."""
+        """Search lessons by keyword across titles and content. Always call this before working
+        on a known-problematic area to check for prior lessons learned. Non-approved
+        (proposed/deprecated/superseded) lessons are excluded unless include_proposed is set.
+        min_authority filters to authority >= the given rank (informational < recommended <
+        required)."""
         limit = max(1, min(limit, 50))
         async with get_session_factory()() as session:
             repo = LessonRepository(session)
-            lessons = await repo.search(query=query, app=app, tags=tags, limit=limit)
+            lessons = await repo.search(
+                query=query,
+                app=app,
+                tags=tags,
+                limit=limit,
+                include_proposed=include_proposed,
+                min_authority=min_authority,
+            )
             results = [
                 {
                     "id": l.id,
@@ -28,6 +41,10 @@ def register_lesson_tools(mcp: FastMCP) -> None:
                     "tags": l.tags or [],
                     "severity": l.severity,
                     "source": l.source,
+                    "status": l.status,
+                    "authority": l.authority,
+                    "applicability": l.applicability,
+                    "conflict": l.conflict_kind,
                 }
                 for l in lessons
             ]

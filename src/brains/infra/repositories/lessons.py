@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.infra.models import Lesson
+from src.core.governance import AUTHORITY_RANK, STATUS_APPROVED, STATUS_PROPOSED
 
 
 def _escape_like(value: str) -> str:
@@ -20,8 +21,13 @@ class LessonRepository:
         app: str | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
     ) -> list[Lesson]:
-        """Search lessons by keyword with ILIKE, optionally filtered by app and tags."""
+        """Search lessons by keyword with ILIKE, optionally filtered by app and tags.
+        Defaults to approved lessons only (excludes proposed/deprecated/superseded); pass
+        include_proposed=True to also include proposed lessons. min_authority filters to
+        authority >= the given rank."""
         escaped = _escape_like(query)
         stmt = select(Lesson).where(
             or_(
@@ -34,6 +40,13 @@ class LessonRepository:
         if tags:
             for tag in tags:
                 stmt = stmt.where(Lesson.tags.any(tag))
+        allowed_statuses = [STATUS_APPROVED] + ([STATUS_PROPOSED] if include_proposed else [])
+        stmt = stmt.where(Lesson.status.in_(allowed_statuses))
+        if min_authority:
+            allowed_authorities = [
+                a for a, rank in AUTHORITY_RANK.items() if rank >= AUTHORITY_RANK[min_authority]
+            ]
+            stmt = stmt.where(Lesson.authority.in_(allowed_authorities))
         stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
