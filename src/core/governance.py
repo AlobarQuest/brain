@@ -9,7 +9,8 @@ from __future__ import annotations
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import CheckConstraint, Integer, Text
@@ -164,3 +165,133 @@ async def find_conflicts(
                     f" on {list(overlap_key_fields)}",
                 )
     return overlap_hit
+
+
+# --- write-path helpers + governance tools --------------------------------
+APPROVER_IDENTITY = "devon"  # registry human-operator identity (WS-1.2); reviewed_by value
+
+
+def proposed_defaults(*, proposed_by: str | None, applicability: dict, auto_approve: bool) -> dict:
+    data: dict = {
+        "status": STATUS_PROPOSED,
+        "authority": AUTHORITY_INFORMATIONAL,
+        "proposed_by": proposed_by or "unattributed",
+        "applicability": applicability or {},
+        "version": 1,
+    }
+    if auto_approve and require_approver():
+        data["status"] = STATUS_APPROVED
+        data["reviewed_by"] = APPROVER_IDENTITY
+        data["reviewed_at"] = datetime.now(timezone.utc)
+    return data
+
+
+def finalize_governance(data: dict, flag: ConflictFlag | None) -> None:
+    """Write the conflict flag onto an insert dict. A DUPLICATE flag also
+    cancels any auto-approve (never approve over an unacknowledged duplicate);
+    an OVERLAP flag is advisory and leaves auto-approve intact."""
+    if flag is None:
+        return
+    data["conflict_note"] = flag.note
+    data["conflict_kind"] = flag.kind
+    if flag.kind == CONFLICT_DUPLICATE and data.get("status") == STATUS_APPROVED:
+        data["status"] = STATUS_PROPOSED
+        data.pop("reviewed_by", None)
+        data.pop("reviewed_at", None)
+
+
+async def _get_governed_record(
+    session, records: dict[str, type], record_type: str, id: int
+) -> tuple[Any, dict | None]:
+    """Resolve record_type → model, load the row. Returns (rec, None) on
+    success or (None, error_dict) — shared by approve/reject/deprecate so each
+    tool only has to handle its own status transition."""
+    model = records.get(record_type)
+    if model is None:
+        return None, {"error": "unknown_record_type", "allowed": list(records)}
+    rec = await session.get(model, id)
+    if rec is None:
+        return None, {"error": "not_found", "record_type": record_type, "id": id}
+    return rec, None
+
+
+async def _approve_record(
+    records: dict[str, type], record_type: str, id: int, acknowledge_conflict: bool
+) -> dict:
+    """Implementation behind the `approve` MCP tool (kept module-level, out of
+    the nested-closure body, so register_governance_tools stays simple)."""
+    from src.core.db import get_session_factory
+
+    if not require_approver():
+        return {"error": "not_authorized", "hint": "approval requires the approver key"}
+    async with get_session_factory()() as session:
+        rec, err = await _get_governed_record(session, records, record_type, id)
+        if err:
+            return err
+        if (rec.conflict_kind == CONFLICT_DUPLICATE
+                and rec.conflict_acknowledged_at is None and not acknowledge_conflict):
+            return {"error": "conflict_unacknowledged", "conflict_note": rec.conflict_note}
+        rec.status = STATUS_APPROVED
+        rec.reviewed_by = APPROVER_IDENTITY
+        rec.reviewed_at = datetime.now(timezone.utc)
+        if rec.conflict_kind == CONFLICT_DUPLICATE and acknowledge_conflict:
+            rec.conflict_acknowledged_at = datetime.now(timezone.utc)
+        await session.commit()
+        return {"approved": True, "record_type": record_type, "id": id, "status": rec.status}
+
+
+async def _reject_record(records: dict[str, type], record_type: str, id: int, reason: str) -> dict:
+    """Implementation behind the `reject` MCP tool."""
+    from src.core.db import get_session_factory
+
+    if not require_approver():
+        return {"error": "not_authorized"}
+    async with get_session_factory()() as session:
+        rec, err = await _get_governed_record(session, records, record_type, id)
+        if err:
+            return err
+        rec.status = STATUS_DEPRECATED
+        rec.reviewed_by = APPROVER_IDENTITY
+        rec.reviewed_at = datetime.now(timezone.utc)
+        note = f"REJECTED: {reason}"
+        rec.conflict_note = f"{rec.conflict_note} | {note}" if rec.conflict_note else note
+        await session.commit()
+        return {"rejected": True, "record_type": record_type, "id": id}
+
+
+async def _deprecate_record(records: dict[str, type], record_type: str, id: int) -> dict:
+    """Implementation behind the `deprecate` MCP tool."""
+    from src.core.db import get_session_factory
+
+    if not require_approver():
+        return {"error": "not_authorized"}
+    async with get_session_factory()() as session:
+        rec, err = await _get_governed_record(session, records, record_type, id)
+        if err:
+            return err
+        rec.status = STATUS_DEPRECATED
+        await session.commit()
+        return {"deprecated": True, "record_type": record_type, "id": id}
+
+
+def register_governance_tools(mcp, records: dict[str, type]) -> None:
+    """Register approve/reject/deprecate for a brain's governed record types.
+    `records` maps a record_type name → its GovernanceMixin model class."""
+
+    @mcp.tool()
+    async def approve(record_type: str, id: int, acknowledge_conflict: bool = False) -> dict:
+        """Approve a proposed record (proposed→approved). APPROVER KEY ONLY.
+        A duplicate-conflict flag must be acknowledged (acknowledge_conflict=True);
+        an overlap flag is advisory and never blocks."""
+        return await _approve_record(records, record_type, id, acknowledge_conflict)
+
+    @mcp.tool()
+    async def reject(record_type: str, id: int, reason: str) -> dict:
+        """Reject a proposed record (→ deprecated). APPROVER KEY ONLY. The reason
+        is appended to conflict_note (prefixed REJECTED:), preserving any flag."""
+        return await _reject_record(records, record_type, id, reason)
+
+    @mcp.tool()
+    async def deprecate(record_type: str, id: int) -> dict:
+        """Deprecate an approved record (approved→deprecated). APPROVER KEY ONLY."""
+        return await _deprecate_record(records, record_type, id)

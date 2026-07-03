@@ -151,3 +151,36 @@ async def test_proposed_required_is_not_a_target():
     async with Session() as s:
         assert await g.find_conflicts(s, _Rec, candidate_check=dict(chk),
                                       overlap_key_fields=(), candidate={}) is None
+
+
+def test_proposed_defaults_contributor_cannot_auto_approve(monkeypatch):
+    monkeypatch.setattr(g, "require_approver", lambda: False)
+    d = g.proposed_defaults(
+        proposed_by="agent-x", applicability={"category": "security"}, auto_approve=True
+    )
+    assert d["status"] == "proposed"          # auto_approve ignored without approver key
+    assert d["proposed_by"] == "agent-x"
+    assert d["authority"] == "informational"
+
+
+def test_proposed_defaults_approver_auto_approves(monkeypatch):
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+    d = g.proposed_defaults(proposed_by="devon", applicability={}, auto_approve=True)
+    assert d["status"] == "approved"
+    assert d["reviewed_by"] == g.APPROVER_IDENTITY
+    assert d["reviewed_at"] is not None
+
+
+def test_finalize_governance_duplicate_cancels_auto_approve():
+    d = {"status": "approved", "reviewed_by": "devon", "reviewed_at": "t"}
+    g.finalize_governance(d, g.ConflictFlag(g.CONFLICT_DUPLICATE, "dup of #1"))
+    assert d["status"] == "proposed"          # never auto-approve over a duplicate
+    assert "reviewed_by" not in d and "reviewed_at" not in d
+    assert d["conflict_kind"] == "duplicate"
+
+
+def test_finalize_governance_overlap_is_advisory():
+    d = {"status": "approved", "reviewed_by": "devon", "reviewed_at": "t"}
+    g.finalize_governance(d, g.ConflictFlag(g.CONFLICT_OVERLAP, "overlaps #1"))
+    assert d["status"] == "approved"          # overlap does not block auto-approve
+    assert d["conflict_kind"] == "overlap"
