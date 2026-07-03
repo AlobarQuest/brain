@@ -8,7 +8,17 @@ version: n/a
 version_source: none
 updated: '2026-06-30'
 foundation: true
-applicable_standards: [project, security, code, infra]
+foundation_contract: 1
+applicable_standards:
+  project: '1.0'
+  security: '1.0'
+  code: '1.0'
+  infra: null
+required_checks:
+- id: quality
+  executor: github-actions:quality.yml
+- id: ci
+  executor: github-actions:ci.yml
 coolify_resources: [brain-app, brain-code, brain-infra, brain-open, brain-app-db, brain-code-db, brain-infra-db, brain-open-db, aymdec0jxuaw2slzcs6nhdmp, svbkhx455u1fdvev0k840vse, m10p29dq7aahed7ssi06fnwu, abvedgcsk6a8a2cva5n87jw4, x1rt6fvevdzmkp34a8wprl76, wvnxvjhsblyiosiddnvaghmp, dt6exe82vfmc41cg8sx64q4a, jsvdokywdnwhxxszrq5xavuk]
 ---
 
