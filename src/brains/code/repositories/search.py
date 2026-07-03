@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.code.models import Lesson, Road, Rule
 from src.brains.code.repositories._like import escape_like
+from src.core.governance import STATUS_APPROVED
 
 
 class SearchRepository:
@@ -35,12 +36,14 @@ class SearchRepository:
             select(Rule)
             .where(
                 Rule.retired_at.is_(None),
+                Rule.status == STATUS_APPROVED,
                 or_(Rule.rule.ilike(like), Rule.reason.ilike(like)),
             )
             .limit(limit)
         )
         lessons_stmt = select(Lesson).where(
-            or_(Lesson.title.ilike(like), Lesson.content.ilike(like))
+            Lesson.status == STATUS_APPROVED,
+            or_(Lesson.title.ilike(like), Lesson.content.ilike(like)),
         )
         if tags:
             for tag in tags:

@@ -4,16 +4,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.code.models import Lesson
 from src.brains.code.repositories._like import escape_like
+from src.core.governance import AUTHORITY_RANK, STATUS_APPROVED, STATUS_PROPOSED
+
+
+def _status_and_authority_filter(stmt, include_proposed: bool, min_authority: str | None):
+    allowed_statuses = [STATUS_APPROVED] + ([STATUS_PROPOSED] if include_proposed else [])
+    stmt = stmt.where(Lesson.status.in_(allowed_statuses))
+    if min_authority:
+        allowed_authorities = [
+            a for a, rank in AUTHORITY_RANK.items() if rank >= AUTHORITY_RANK[min_authority]
+        ]
+        stmt = stmt.where(Lesson.authority.in_(allowed_authorities))
+    return stmt
 
 
 class LessonRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_for_road(self, road_slug: str, limit: int = 100) -> list[Lesson]:
-        result = await self.session.execute(
-            select(Lesson).where(Lesson.road_slug == road_slug).limit(limit)
-        )
+    async def list_for_road(
+        self,
+        road_slug: str,
+        limit: int = 100,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
+    ) -> list[Lesson]:
+        """List lessons for a road. Defaults to approved lessons only (excludes
+        proposed/deprecated/superseded); pass include_proposed=True to also include proposed
+        lessons. min_authority filters to authority >= the given rank."""
+        stmt = select(Lesson).where(Lesson.road_slug == road_slug)
+        stmt = _status_and_authority_filter(stmt, include_proposed, min_authority)
+        stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
     async def search(
@@ -22,6 +44,8 @@ class LessonRepository:
         road_slug: str | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
+        include_proposed: bool = False,
+        min_authority: str | None = None,
     ) -> list[Lesson]:
         escaped = escape_like(query)
         stmt = select(Lesson).where(
@@ -35,6 +59,7 @@ class LessonRepository:
         if tags:
             for tag in tags:
                 stmt = stmt.where(Lesson.tags.any(tag))
+        stmt = _status_and_authority_filter(stmt, include_proposed, min_authority)
         stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

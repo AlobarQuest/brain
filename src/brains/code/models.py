@@ -12,16 +12,21 @@ engine/session — which are metadata-agnostic — work identically either way.
 """
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, TIMESTAMP, Text, func
+from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from src.core.governance import GovernanceMixin, governance_check_constraints
 
 
 class Base(DeclarativeBase):
     pass
 
 
-_CATEGORIES = "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', 'security', 'ai'"
+_CATEGORIES = (
+    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', "
+    "'security', 'ai'"
+)
 _STATUSES = "'paved', 'partial', 'unpaved', 'paving'"
 
 
@@ -44,7 +49,9 @@ class Road(Base):
     home: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_standard: Mapped[str | None] = mapped_column(Text, nullable=True)
     adr_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_validated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     validation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
@@ -54,12 +61,13 @@ class Road(Base):
     )
 
 
-class Rule(Base):
+class Rule(Base, GovernanceMixin):
     """A normative statement within a road (mirrors infra brain's rules)."""
 
     __tablename__ = "rules"
     __table_args__ = (
         CheckConstraint("severity IN ('BLOCK', 'WARN', 'INFO')", name="rules_severity_check"),
+        *governance_check_constraints("rules"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -76,12 +84,15 @@ class Rule(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("rules.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("rules.id"), nullable=True)
 
 
-class Lesson(Base):
+class Lesson(Base, GovernanceMixin):
     """A lesson learned within a road (road_slug null = general)."""
 
     __tablename__ = "lessons"
+    __table_args__ = governance_check_constraints("lessons")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     road_slug: Mapped[str | None] = mapped_column(ForeignKey("roads.slug"), nullable=True)
@@ -92,12 +103,15 @@ class Lesson(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
 
 
-class Exemplar(Base):
+class Exemplar(Base, GovernanceMixin):
     """A canonical example implementation of a road."""
 
     __tablename__ = "exemplars"
+    __table_args__ = governance_check_constraints("exemplars")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     road_slug: Mapped[str] = mapped_column(ForeignKey("roads.slug"), nullable=False)
@@ -106,4 +120,8 @@ class Exemplar(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("exemplars.id"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exemplars.id"), nullable=True
     )

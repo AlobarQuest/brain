@@ -19,9 +19,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from src.core.db import get_session_factory
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
+from src.core.db import get_session_factory
 
 
 async def seed() -> None:
