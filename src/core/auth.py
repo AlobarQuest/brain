@@ -9,15 +9,15 @@ OR as the ``?key=`` query parameter.  Comparison uses ``hmac.compare_digest``
 to prevent timing attacks.  Absent or mismatched credentials produce a 401
 JSON response.
 """
+
 from __future__ import annotations
 
 import hmac
-from typing import Callable
+from collections.abc import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp
 
 
 def make_auth_middleware(

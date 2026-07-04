@@ -30,6 +30,7 @@ Usage
   python scripts/backfill_app_deployment_fields.py --dry-run  # report only, no writes
   python scripts/backfill_app_deployment_fields.py --apps booking-assistant,contacts
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,6 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # --------------------------------------------------------------------------- #
 # Pure helpers (unit-tested in tests/brains/test_app_deployment_fields.py)     #
 # --------------------------------------------------------------------------- #
+
 
 def normalize_github_repo(remote_url: str | None) -> str | None:
     """Normalize a git origin URL to canonical 'owner/repo'.
@@ -143,7 +145,10 @@ def extract_environments(chunk_contents: list[str]) -> list[dict]:
             }
     # Stable, deterministic order: prod, preview, staging, dev, then any others.
     order = ["prod", "preview", "staging", "dev"]
-    return sorted(seen.values(), key=lambda e: (order.index(e["name"]) if e["name"] in order else len(order), e["name"]))
+    return sorted(
+        seen.values(),
+        key=lambda e: (order.index(e["name"]) if e["name"] in order else len(order), e["name"]),
+    )
 
 
 def git_origin_url(repo_path: str | None) -> str | None:
@@ -153,7 +158,9 @@ def git_origin_url(repo_path: str | None) -> str | None:
     try:
         result = subprocess.run(
             ["git", "-C", repo_path, "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -165,6 +172,7 @@ def git_origin_url(repo_path: str | None) -> str | None:
 # --------------------------------------------------------------------------- #
 # DB runner                                                                    #
 # --------------------------------------------------------------------------- #
+
 
 async def _run(dry_run: bool, only: set[str] | None) -> None:
     from sqlalchemy import text
@@ -179,9 +187,11 @@ async def _run(dry_run: bool, only: set[str] | None) -> None:
     rows_for_report: list[tuple[str, str | None, int]] = []
 
     async with engine.connect() as conn:
-        apps = (await conn.execute(text(
-            "SELECT slug, repo_path FROM apps WHERE status = 'active' ORDER BY slug"
-        ))).all()
+        apps = (
+            await conn.execute(
+                text("SELECT slug, repo_path FROM apps WHERE status = 'active' ORDER BY slug")
+            )
+        ).all()
 
         for slug, repo_path in apps:
             if only and slug not in only:
@@ -189,14 +199,20 @@ async def _run(dry_run: bool, only: set[str] | None) -> None:
 
             github_repo = normalize_github_repo(git_origin_url(repo_path))
 
-            chunks = (await conn.execute(
-                text(
-                    "SELECT content FROM app_knowledge "
-                    "WHERE app_slug = :slug AND knowledge_type = 'deployment' "
-                    "AND is_active = true ORDER BY created_at DESC"
-                ),
-                {"slug": slug},
-            )).scalars().all()
+            chunks = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT content FROM app_knowledge "
+                            "WHERE app_slug = :slug AND knowledge_type = 'deployment' "
+                            "AND is_active = true ORDER BY created_at DESC"
+                        ),
+                        {"slug": slug},
+                    )
+                )
+                .scalars()
+                .all()
+            )
             environments = extract_environments(list(chunks))
 
             if github_repo:
@@ -216,6 +232,7 @@ async def _run(dry_run: bool, only: set[str] | None) -> None:
                 params["github_repo"] = github_repo
             if environments:
                 import json
+
                 sets.append("environments = CAST(:environments AS jsonb)")
                 params["environments"] = json.dumps(environments)
             if sets:

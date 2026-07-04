@@ -10,6 +10,7 @@ table names the moment both modules are imported in one process (e.g. the test
 suite). In production only one brain is imported per process, so the runtime
 engine/session — which are metadata-agnostic — work identically either way.
 """
+
 from datetime import datetime
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Text, func
@@ -24,8 +25,7 @@ class Base(DeclarativeBase):
 
 
 _CATEGORIES = (
-    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', "
-    "'security', 'ai'"
+    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', 'security', 'ai'"
 )
 _STATUSES = "'paved', 'partial', 'unpaved', 'paving'"
 
@@ -122,6 +122,4 @@ class Exemplar(Base, GovernanceMixin):
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
     supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("exemplars.id"), nullable=True)
-    superseded_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("exemplars.id"), nullable=True
-    )
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("exemplars.id"), nullable=True)

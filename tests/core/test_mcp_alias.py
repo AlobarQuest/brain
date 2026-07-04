@@ -1,4 +1,5 @@
 """Tests for the MCPPrefixAlias ASGI shim."""
+
 import pytest
 
 from src.core.mcp_alias import MCPPrefixAlias

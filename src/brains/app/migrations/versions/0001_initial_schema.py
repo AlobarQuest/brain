@@ -5,16 +5,17 @@ Revises:
 Create Date: 2026-03-27
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -24,8 +25,12 @@ def upgrade() -> None:
     # --- apps table ---
     op.create_table(
         "apps",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
+        ),
         sa.Column("slug", sa.Text(), nullable=False, unique=True),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
@@ -33,39 +38,61 @@ def upgrade() -> None:
         sa.Column("repo_path", sa.Text(), nullable=True),
         sa.Column("deployment_url", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), nullable=False, server_default=sa.text("'active'")),
-        sa.Column("tags", postgresql.ARRAY(sa.Text()), nullable=False,
-                  server_default=sa.text("'{}'::text[]")),
-        sa.Column("onboarding_status", sa.Text(), nullable=False,
-                  server_default=sa.text("'pending'")),
+        sa.Column(
+            "tags",
+            postgresql.ARRAY(sa.Text()),
+            nullable=False,
+            server_default=sa.text("'{}'::text[]"),
+        ),
+        sa.Column(
+            "onboarding_status", sa.Text(), nullable=False, server_default=sa.text("'pending'")
+        ),
         sa.Column("last_onboarded_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("last_onboarding_error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
 
     # --- app_knowledge table ---
     op.create_table(
         "app_knowledge",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
-        sa.Column("app_id", postgresql.UUID(as_uuid=True),
-                  sa.ForeignKey("apps.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
+        ),
+        sa.Column(
+            "app_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("apps.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("app_slug", sa.Text(), nullable=False),
         sa.Column("knowledge_type", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("content_hash", sa.Text(), nullable=False),
-        sa.Column("metadata", postgresql.JSONB(), nullable=False,
-                  server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+        ),
         sa.Column("source", sa.Text(), nullable=False, server_default=sa.text("'mcp'")),
-        sa.Column("supersedes_id", postgresql.UUID(as_uuid=True),
-                  sa.ForeignKey("app_knowledge.id"), nullable=True),
+        sa.Column(
+            "supersedes_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("app_knowledge.id"),
+            nullable=True,
+        ),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
 
     # Add vector column via raw SQL
@@ -86,10 +113,7 @@ def upgrade() -> None:
     )
 
     # Metadata JSONB GIN
-    op.execute(
-        "CREATE INDEX app_knowledge_metadata_idx ON app_knowledge "
-        "USING gin (metadata)"
-    )
+    op.execute("CREATE INDEX app_knowledge_metadata_idx ON app_knowledge USING gin (metadata)")
 
     # Deduplication unique constraint
     op.execute(
@@ -98,8 +122,7 @@ def upgrade() -> None:
     )
 
     # Recency
-    op.create_index("app_knowledge_created_at_idx", "app_knowledge",
-                    [sa.text("created_at DESC")])
+    op.create_index("app_knowledge_created_at_idx", "app_knowledge", [sa.text("created_at DESC")])
 
     # Scoped queries
     op.execute(

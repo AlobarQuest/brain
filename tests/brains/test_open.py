@@ -1,4 +1,5 @@
 """Tests for the open brain package: capabilities, tool registration, and embeddings wiring."""
+
 import uuid
 
 import pytest
@@ -18,6 +19,7 @@ from src.core.registry import Capabilities, load_brain
 # ---------------------------------------------------------------------------
 # Capabilities
 # ---------------------------------------------------------------------------
+
 
 def test_open_capabilities():
     brain = load_brain(BrainType.OPEN)
@@ -69,10 +71,41 @@ async def test_open_register_is_idempotent_on_fresh_mcp():
 # Embeddings client is routed through core.embeddings (no real network)
 # ---------------------------------------------------------------------------
 
+
 def test_open_embeddings_capability_declared():
     """The open brain declares embeddings=True."""
     brain = load_brain(BrainType.OPEN)
     assert brain.capabilities.embeddings is True
+
+
+def test_open_metadata_normalizer_enforces_shape_enum_and_dates():
+    from src.brains.open.tools.thoughts import DEFAULT_METADATA, _normalize_metadata
+
+    assert _normalize_metadata({"type": "invented"}) == DEFAULT_METADATA
+    assert (
+        _normalize_metadata(
+            {
+                "type": "task",
+                "people": [],
+                "action_items": ["ship"],
+                "dates_mentioned": ["not-a-date"],
+                "topics": ["delivery"],
+            }
+        )
+        == DEFAULT_METADATA
+    )
+    assert (
+        _normalize_metadata(
+            {
+                "type": "task",
+                "people": ["Devon"],
+                "action_items": ["ship"],
+                "dates_mentioned": ["2026-07-04"],
+                "topics": ["delivery"],
+            }
+        )["type"]
+        == "task"
+    )
 
 
 async def test_capture_thought_uses_embeddings_client(monkeypatch):
@@ -149,14 +182,23 @@ async def test_capture_thought_uses_embeddings_client(monkeypatch):
 # Promotion of a thought into a knowledge brain is WS-6.2, out of scope here.
 # ---------------------------------------------------------------------------
 
+
 def test_thought_has_governance_mixin_columns():
     """The migration's columns must exist on the model (GovernanceMixin + UUID
     supersession), mirroring AppKnowledge's typing."""
     assert issubclass(Thought, GovernanceMixin)
     cols = Thought.__table__.columns
     for name in (
-        "status", "authority", "proposed_by", "owner", "reviewed_by", "reviewed_at",
-        "applicability", "version", "conflict_note", "conflict_kind",
+        "status",
+        "authority",
+        "proposed_by",
+        "owner",
+        "reviewed_by",
+        "reviewed_at",
+        "applicability",
+        "version",
+        "conflict_note",
+        "conflict_kind",
         "conflict_acknowledged_at",
     ):
         assert name in cols, f"missing governance column: {name}"
@@ -189,7 +231,10 @@ def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData
             server_default = None
         cols.append(
             sa.Column(
-                c.name, col_type, primary_key=c.primary_key, nullable=c.nullable,
+                c.name,
+                col_type,
+                primary_key=c.primary_key,
+                nullable=c.nullable,
                 server_default=server_default,
             )
         )

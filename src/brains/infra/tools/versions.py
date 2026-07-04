@@ -1,7 +1,7 @@
 from fastmcp import FastMCP
 
-from src.core.db import get_session_factory
 from src.brains.infra.repositories.versions import VersionRepository
+from src.core.db import get_session_factory
 
 
 def register_version_tools(mcp: FastMCP) -> None:
@@ -59,7 +59,11 @@ def register_version_tools(mcp: FastMCP) -> None:
             repo = VersionRepository(session)
             existing = await repo.get_by_package(package)
             if not existing:
-                return {"error": "not_found", "package": package, "hint": "Use add_version to create new packages"}
+                return {
+                    "error": "not_found",
+                    "package": package,
+                    "hint": "Use add_version to create new packages",
+                }
             data: dict = {"package": package, "canonical": canonical}
             if reason is not None:
                 data["reason"] = reason

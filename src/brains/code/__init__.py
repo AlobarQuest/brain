@@ -3,6 +3,7 @@
 The 4th brain (BRAIN_TYPE=code), modeled directly on src/brains/infra. No pgvector
 for v1 (embeddings=False): structured roads/rules + keyword search.
 """
+
 from fastapi import HTTPException
 
 from src.brains.code.models import Exemplar, Lesson, Rule
@@ -92,7 +93,9 @@ def register_routes(app) -> None:
     ):
         async with get_session_factory()() as session:
             rules = await RuleRepository(session).list_all(
-                category=category, severity=severity, road_slug=road_slug,
+                category=category,
+                severity=severity,
+                road_slug=road_slug,
                 include_retired=include_retired,
             )
             return {"rules": [_rule_rest(r) for r in rules]}

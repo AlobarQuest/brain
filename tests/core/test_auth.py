@@ -1,7 +1,7 @@
 """Tests for the x-brain-key auth middleware."""
-import pytest
-import httpx
 
+import httpx
+import pytest
 from fastapi import FastAPI
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
@@ -128,6 +128,7 @@ async def test_prefix_match_exempts_subpath():
 def _client(contributor_key=None):
     async def ok(request):
         return PlainTextResponse("ok")
+
     app = Starlette(routes=[Route("/x", ok)])
     app.add_middleware(make_auth_middleware(APPROVER, contributor_key, ("/health",), ()))
     return TestClient(app)

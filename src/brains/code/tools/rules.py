@@ -34,9 +34,13 @@ def register_rule_tools(mcp: FastMCP) -> None:
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
             rules = await repo.list_all(
-                category=category, severity=severity, road_slug=road_slug,
-                limit=limit, include_retired=include_retired,
-                include_proposed=include_proposed, min_authority=min_authority,
+                category=category,
+                severity=severity,
+                road_slug=road_slug,
+                limit=limit,
+                include_retired=include_retired,
+                include_proposed=include_proposed,
+                min_authority=min_authority,
             )
             return {"rules": [rule_dict(r) for r in rules]}
 
@@ -64,9 +68,15 @@ def register_rule_tools(mcp: FastMCP) -> None:
             return {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}
         applicability = {"road_slug": road_slug, "category": category}
         data = {
-            "road_slug": road_slug, "severity": severity, "category": category,
-            "rule": rule, "reason": reason, "source": source, "check": check,
-            "good_example": good_example, "bad_example": bad_example,
+            "road_slug": road_slug,
+            "severity": severity,
+            "category": category,
+            "rule": rule,
+            "reason": reason,
+            "source": source,
+            "check": check,
+            "good_example": good_example,
+            "bad_example": bad_example,
         }
         data.update(
             proposed_defaults(

@@ -23,6 +23,7 @@ Coolify apps (prod + preview) -> several environment records. Coolify apps that 
 nothing are logged, never invented. Compose/Flavor-C apps are Coolify *services*, not
 applications, so they never appear here — reported as "not covered (service)" upstream.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,8 +40,14 @@ from src.brains.app.repositories.apps import normalize_host  # noqa: E402
 
 # BWS secret UUIDs for the Coolify API tokens (same as the drift pipeline).
 COOLIFY_INSTANCES = {
-    "prod": {"base": "http://coolify-1.devonwatkins.com", "bws_uuid": "bbd71f41-b7df-4ae9-8fdb-b41501447308"},
-    "dev": {"base": "http://192.168.139.217:8000", "bws_uuid": "8a2e1e10-d67b-4382-bbf3-b4150178e2a8"},
+    "prod": {
+        "base": "http://coolify-1.devonwatkins.com",
+        "bws_uuid": "bbd71f41-b7df-4ae9-8fdb-b41501447308",
+    },
+    "dev": {
+        "base": "http://192.168.139.217:8000",
+        "bws_uuid": "8a2e1e10-d67b-4382-bbf3-b4150178e2a8",
+    },
 }
 
 _ENV_ORDER = ["prod", "preview", "staging", "dev"]
@@ -49,6 +56,7 @@ _ENV_ORDER = ["prod", "preview", "staging", "dev"]
 # --------------------------------------------------------------------------- #
 # Pure helpers (unit-tested in tests/brains/test_coolify_sync.py)             #
 # --------------------------------------------------------------------------- #
+
 
 def derive_repo(git_repository: str | None) -> str | None:
     """Parse a Coolify `git_repository` to canonical 'Owner/Repo' (case preserved).
@@ -142,7 +150,9 @@ def build_environment(coolify_app: dict) -> dict:
     }
 
 
-def map_coolify_to_app(coolify_apps: list[dict], appbrain_apps: list[dict]) -> tuple[dict, list[dict]]:
+def map_coolify_to_app(
+    coolify_apps: list[dict], appbrain_apps: list[dict]
+) -> tuple[dict, list[dict]]:
     """Map Coolify applications onto app-brain apps.
 
     Returns (computed, unmapped):
@@ -178,11 +188,15 @@ def map_coolify_to_app(coolify_apps: list[dict], appbrain_apps: list[dict]) -> t
             host = normalize_host(pick_fqdn(c.get("fqdn")))
             slug = by_host.get(host) if host else None
         if not slug:
-            unmapped.append({
-                "uuid": c.get("uuid"), "name": c.get("name"),
-                "git_repository": c.get("git_repository"), "fqdn": c.get("fqdn"),
-                "instance": c.get("instance"),
-            })
+            unmapped.append(
+                {
+                    "uuid": c.get("uuid"),
+                    "name": c.get("name"),
+                    "git_repository": c.get("git_repository"),
+                    "fqdn": c.get("fqdn"),
+                    "instance": c.get("instance"),
+                }
+            )
             continue
         entry = computed.setdefault(slug, {"github_repo": None, "environments": []})
         if matched_by_repo and not entry["github_repo"]:
@@ -191,7 +205,10 @@ def map_coolify_to_app(coolify_apps: list[dict], appbrain_apps: list[dict]) -> t
 
     for entry in computed.values():
         entry["environments"].sort(
-            key=lambda e: (_ENV_ORDER.index(e["name"]) if e["name"] in _ENV_ORDER else len(_ENV_ORDER), e["name"])
+            key=lambda e: (
+                _ENV_ORDER.index(e["name"]) if e["name"] in _ENV_ORDER else len(_ENV_ORDER),
+                e["name"],
+            )
         )
     return computed, unmapped
 
@@ -199,6 +216,7 @@ def map_coolify_to_app(coolify_apps: list[dict], appbrain_apps: list[dict]) -> t
 # --------------------------------------------------------------------------- #
 # Coolify fetch (read-only) + DB write                                         #
 # --------------------------------------------------------------------------- #
+
 
 def _bws_get(uuid: str) -> str:
     out = subprocess.run(["bws", "secret", "get", uuid], capture_output=True, text=True, timeout=30)
@@ -210,35 +228,49 @@ def _bws_get(uuid: str) -> str:
 def fetch_coolify_apps() -> list[dict]:
     """List applications across both Coolify instances. Read-only."""
     import httpx
+
     apps: list[dict] = []
     for instance, cfg in COOLIFY_INSTANCES.items():
         token = _bws_get(cfg["bws_uuid"])
         try:
             resp = httpx.get(
                 f"{cfg['base']}/api/v1/applications",
-                headers={"Authorization": f"Bearer {token}"}, timeout=30,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
             )
             resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001
             print(f"  [warn] {instance} Coolify unreachable, skipping: {exc}")
             continue
         for a in resp.json():
-            apps.append({
-                "uuid": a.get("uuid"), "name": a.get("name"),
-                "git_repository": a.get("git_repository"), "git_branch": a.get("git_branch"),
-                "fqdn": a.get("fqdn"), "instance": instance,
-            })
+            apps.append(
+                {
+                    "uuid": a.get("uuid"),
+                    "name": a.get("name"),
+                    "git_repository": a.get("git_repository"),
+                    "git_branch": a.get("git_branch"),
+                    "fqdn": a.get("fqdn"),
+                    "instance": instance,
+                }
+            )
     return apps
 
 
 async def _load_appbrain(conn) -> list[dict]:
     from sqlalchemy import text
-    rows = (await conn.execute(text(
-        "SELECT slug, github_repo, deployment_url, environments FROM apps ORDER BY slug"
-    ))).all()
+
+    rows = (
+        await conn.execute(
+            text("SELECT slug, github_repo, deployment_url, environments FROM apps ORDER BY slug")
+        )
+    ).all()
     return [
-        {"slug": r.slug, "github_repo": r.github_repo, "deployment_url": r.deployment_url,
-         "environments": r.environments}
+        {
+            "slug": r.slug,
+            "github_repo": r.github_repo,
+            "deployment_url": r.deployment_url,
+            "environments": r.environments,
+        }
         for r in rows
     ]
 
@@ -277,15 +309,19 @@ async def _run(apply: bool, only: set[str] | None) -> None:
             print(f"  [{mark}] {slug}")
             if repo_fill:
                 print(f"        github_repo: {cur_repo!r} -> {new['github_repo']!r}  (fill)")
-            print(f"        environments: {len(cur_envs)} -> {len(new['environments'])} "
-                  f"{[ (e['name'], e['branch'], e['coolify_app_uuid']) for e in new['environments'] ]}")
+            print(
+                f"        environments: {len(cur_envs)} -> {len(new['environments'])} "
+                f"{[(e['name'], e['branch'], e['coolify_app_uuid']) for e in new['environments']]}"
+            )
             if apply and (repo_fill or envs_changed):
                 sets = ["environments = CAST(:envs AS jsonb)"]
                 params = {"slug": slug, "envs": json.dumps(new["environments"])}
                 if repo_fill:
                     sets.append("github_repo = :gh")
                     params["gh"] = new["github_repo"]
-                await conn.execute(text(f"UPDATE apps SET {', '.join(sets)} WHERE slug = :slug"), params)
+                await conn.execute(
+                    text(f"UPDATE apps SET {', '.join(sets)} WHERE slug = :slug"), params
+                )
                 changed += 1
 
         if apply:
@@ -299,7 +335,9 @@ async def _run(apply: bool, only: set[str] | None) -> None:
         print(f"  {', '.join(empty)}")
 
     await engine.dispose()
-    print(f"\n{'Wrote ' + str(changed) + ' app(s).' if apply else 'Dry run — no writes. Re-run with --apply to write.'}")
+    print(
+        f"\n{'Wrote ' + str(changed) + ' app(s).' if apply else 'Dry run — no writes. Re-run with --apply to write.'}"
+    )
 
 
 def main() -> None:

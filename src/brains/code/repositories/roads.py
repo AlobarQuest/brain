@@ -46,8 +46,16 @@ class RoadRepository:
         return result.rowcount or 0
 
     _UPDATABLE_FIELDS = {
-        "name", "category", "status", "summary", "decided_approach",
-        "home", "owner_standard", "adr_ref", "last_validated_at", "validation_note",
+        "name",
+        "category",
+        "status",
+        "summary",
+        "decided_approach",
+        "home",
+        "owner_standard",
+        "adr_ref",
+        "last_validated_at",
+        "validation_note",
     }
 
     async def update(self, slug: str, fields: dict) -> Road | None:

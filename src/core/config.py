@@ -1,16 +1,19 @@
 import re
 from enum import Enum
 from functools import lru_cache
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
 
 class BrainType(str, Enum):
     APP = "app"
     INFRA = "infra"
     OPEN = "open"
     CODE = "code"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -48,8 +51,11 @@ class Settings(BaseSettings):
     def effective_database_url(self) -> str:
         if self.database_url:
             return self.database_url
-        return (f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
-                f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}")
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
 
 @lru_cache
 def get_settings() -> "Settings":

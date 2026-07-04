@@ -14,6 +14,7 @@ Usage:
 start.sh, but seeding is ALWAYS an idempotent ON CONFLICT DO NOTHING upsert, so
 the two modes behave identically — there is no destructive overwrite path.
 """
+
 import argparse
 import asyncio
 import json

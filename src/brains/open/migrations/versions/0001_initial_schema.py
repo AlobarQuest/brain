@@ -5,16 +5,17 @@ Revises:
 Create Date: 2026-03-24
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -25,15 +26,22 @@ def upgrade() -> None:
     # doesn't natively support pgvector types)
     op.create_table(
         "thoughts",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
+        ),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("metadata", postgresql.JSONB(), nullable=False,
-                  server_default=sa.text("'{}'::jsonb")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False,
-                  server_default=sa.func.now()),
+        sa.Column(
+            "metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+        ),
+        sa.Column(
+            "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
 
     # Add vector column via raw SQL
@@ -41,13 +49,9 @@ def upgrade() -> None:
 
     # Indexes
     op.execute(
-        "CREATE INDEX thoughts_embedding_idx ON thoughts "
-        "USING hnsw (embedding vector_cosine_ops)"
+        "CREATE INDEX thoughts_embedding_idx ON thoughts USING hnsw (embedding vector_cosine_ops)"
     )
-    op.execute(
-        "CREATE INDEX thoughts_metadata_idx ON thoughts "
-        "USING gin (metadata)"
-    )
+    op.execute("CREATE INDEX thoughts_metadata_idx ON thoughts USING gin (metadata)")
     op.create_index("thoughts_created_at_idx", "thoughts", [sa.text("created_at DESC")])
 
     # updated_at trigger

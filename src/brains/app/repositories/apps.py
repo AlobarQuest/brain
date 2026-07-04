@@ -1,6 +1,4 @@
-import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.brains.app.models import App
 
 
-def normalize_host(value: Optional[str]) -> Optional[str]:
+def normalize_host(value: str | None) -> str | None:
     """Reduce a URL or host string to a bare, comparable host.
 
     Strips scheme, path, and query; lowercases; trims a trailing dot/slash.
@@ -29,9 +27,9 @@ def normalize_host(value: Optional[str]) -> Optional[str]:
 
 def match_environment(
     rows: list[dict],
-    coolify_app_uuid: Optional[str] = None,
-    fqdn: Optional[str] = None,
-) -> Optional[dict]:
+    coolify_app_uuid: str | None = None,
+    fqdn: str | None = None,
+) -> dict | None:
     """Resolve a deployment environment to {github_repo, name, branch, url}.
 
     `rows` is a list of {github_repo, environments[]} records. Resolution order
@@ -40,6 +38,7 @@ def match_environment(
     Returns the first match joined with its app's github_repo, or None. Never
     guesses — branch/url are returned exactly as stored (may be null).
     """
+
     def _joined(github_repo, env):
         return {
             "github_repo": github_repo,
@@ -71,13 +70,12 @@ class AppRepository:
 
     async def list_apps(
         self,
-        status: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
     ) -> list[dict]:
-        stmt = (
-            select(App.slug, App.name, App.status, App.onboarding_status, App.description, App.tags)
-            .order_by(App.name)
-        )
+        stmt = select(
+            App.slug, App.name, App.status, App.onboarding_status, App.description, App.tags
+        ).order_by(App.name)
         if status:
             stmt = stmt.where(App.status == status)
         if tags:
@@ -86,17 +84,15 @@ class AppRepository:
         result = await self.session.execute(stmt)
         return [row._asdict() for row in result.all()]
 
-    async def get_app(self, slug: str) -> Optional[App]:
-        result = await self.session.execute(
-            select(App).where(App.slug == slug)
-        )
+    async def get_app(self, slug: str) -> App | None:
+        result = await self.session.execute(select(App).where(App.slug == slug))
         return result.scalar_one_or_none()
 
     async def resolve_environment(
         self,
-        coolify_app_uuid: Optional[str] = None,
-        fqdn: Optional[str] = None,
-    ) -> Optional[dict]:
+        coolify_app_uuid: str | None = None,
+        fqdn: str | None = None,
+    ) -> dict | None:
         """Resolve a Coolify app (by stable app UUID, else FQDN) to its
         {github_repo, name, branch, url}. Returns None when nothing matches.
 
@@ -107,7 +103,9 @@ class AppRepository:
         query, but keeping both paths in one place is simpler than splitting them.
         """
         result = await self.session.execute(select(App.github_repo, App.environments))
-        rows = [{"github_repo": r.github_repo, "environments": r.environments} for r in result.all()]
+        rows = [
+            {"github_repo": r.github_repo, "environments": r.environments} for r in result.all()
+        ]
         return match_environment(rows, coolify_app_uuid=coolify_app_uuid, fqdn=fqdn)
 
     async def create_app(self, **kwargs) -> App:
@@ -116,7 +114,7 @@ class AppRepository:
         await self.session.flush()
         return app
 
-    async def update_app(self, slug: str, **fields) -> Optional[App]:
+    async def update_app(self, slug: str, **fields) -> App | None:
         app = await self.get_app(slug)
         if not app:
             return None
@@ -129,15 +127,13 @@ class AppRepository:
         self,
         slug: str,
         status: str,
-        error: Optional[str] = None,
-        onboarded_at: Optional[datetime] = None,
+        error: str | None = None,
+        onboarded_at: datetime | None = None,
     ) -> None:
         values: dict = {"onboarding_status": status, "last_onboarding_error": error}
         if onboarded_at:
             values["last_onboarded_at"] = onboarded_at
-        await self.session.execute(
-            update(App).where(App.slug == slug).values(**values)
-        )
+        await self.session.execute(update(App).where(App.slug == slug).values(**values))
 
     async def fail_stale_running(self) -> int:
         """Mark any app stuck in 'running' (from an interrupted job) as 'failed'."""

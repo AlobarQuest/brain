@@ -1,13 +1,14 @@
 import asyncio
 import json
+import re
 
 import httpx
 from fastmcp import FastMCP
 
+from src.brains.open.repositories.thoughts import ThoughtRepository
 from src.core.config import get_settings
 from src.core.db import get_session_factory
 from src.core.embeddings import get_embeddings_client
-from src.brains.open.repositories.thoughts import ThoughtRepository
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
@@ -18,6 +19,37 @@ METADATA_SYSTEM_PROMPT = """Extract metadata from the user's captured thought. R
 - "topics": array of 1-3 short topic tags (always at least one)
 - "type": one of "observation", "task", "idea", "reference", "person_note"
 Only extract what's explicitly there."""
+THOUGHT_TYPES = frozenset({"observation", "task", "idea", "reference", "person_note"})
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DEFAULT_METADATA = {
+    "people": [],
+    "action_items": [],
+    "dates_mentioned": [],
+    "topics": ["uncategorized"],
+    "type": "observation",
+}
+
+
+def _normalize_metadata(value: object) -> dict:
+    if not isinstance(value, dict) or value.get("type") not in THOUGHT_TYPES:
+        return dict(DEFAULT_METADATA)
+    normalized: dict = {"type": value["type"]}
+    for key, minimum, maximum in (
+        ("people", 0, 50),
+        ("action_items", 0, 50),
+        ("dates_mentioned", 0, 50),
+        ("topics", 1, 3),
+    ):
+        items = value.get(key)
+        if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+            return dict(DEFAULT_METADATA)
+        cleaned = [item.strip() for item in items if item.strip()]
+        if len(cleaned) < minimum:
+            return dict(DEFAULT_METADATA)
+        if key == "dates_mentioned" and any(not DATE_RE.fullmatch(item) for item in cleaned):
+            return dict(DEFAULT_METADATA)
+        normalized[key] = cleaned[:maximum]
+    return normalized
 
 
 async def _extract_metadata(text: str) -> dict:
@@ -44,9 +76,9 @@ async def _extract_metadata(text: str) -> dict:
             raise RuntimeError(f"OpenRouter request failed: {r.status_code} {msg}")
         data = r.json()
     try:
-        return json.loads(data["choices"][0]["message"]["content"])
-    except (json.JSONDecodeError, KeyError, IndexError):
-        return {"topics": ["uncategorized"], "type": "observation"}
+        return _normalize_metadata(json.loads(data["choices"][0]["message"]["content"]))
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        return dict(DEFAULT_METADATA)
 
 
 def register_thought_tools(mcp: FastMCP) -> None:
