@@ -4,6 +4,7 @@ from src.brains.infra.models import Rule
 from src.brains.infra.repositories.rules import RuleRepository
 from src.core.db import get_session_factory
 from src.core.governance import (
+    AUTHORITY_REQUIRED,
     finalize_governance,
     find_conflicts,
     proposed_defaults,
@@ -119,7 +120,10 @@ def register_rule_tools(mcp: FastMCP) -> None:
         check: dict | None = None,
         updated_by: str = "ai-capture",
     ) -> dict:
-        """Update an existing rule's fields by id. The rule text itself cannot be changed (retire + add a new rule instead). severity, if given, must be BLOCK, WARN, or INFO."""
+        """Update an existing rule's fields by id. The rule text itself cannot be changed
+        (retire + add a new rule instead). severity, if given, must be BLOCK, WARN, or INFO.
+        Updating a required-authority rule requires the approver key; informational/
+        recommended rules can be updated by a contributor key as before."""
         if severity is not None and severity not in ("BLOCK", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}
         fields = {
@@ -137,6 +141,14 @@ def register_rule_tools(mcp: FastMCP) -> None:
             return {"error": "no_fields", "hint": "Provide at least one of: severity, category, reason, source_app, check"}
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
+            existing = await repo.get_by_id(id)
+            if existing is None:
+                return {"error": "not_found", "id": id}
+            if existing.authority == AUTHORITY_REQUIRED and not require_approver():
+                return {
+                    "error": "not_authorized",
+                    "hint": "updating a required-authority rule requires the approver key",
+                }
             updated = await repo.update(id, fields, updated_by=updated_by)
             if updated is None:
                 return {"error": "not_found", "id": id}
@@ -145,7 +157,10 @@ def register_rule_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def delete_rule(id: int) -> dict:
-        """Soft-delete (retire) a rule by id. Retired rules are excluded from get_rules by default. Idempotent. Use restore_rule to undo."""
+        """Soft-delete (retire) a rule by id. Retired rules are excluded from get_rules by default.
+        Idempotent. Use restore_rule to undo. APPROVER KEY ONLY."""
+        if not require_approver():
+            return {"error": "not_authorized", "hint": "delete requires the approver key"}
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
             existing = await repo.get_by_id(id)

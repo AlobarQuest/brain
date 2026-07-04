@@ -5,7 +5,12 @@ from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
 from src.brains.code.tools.serialize import rule_dict
 from src.core.db import get_session_factory
-from src.core.governance import finalize_governance, find_conflicts, proposed_defaults
+from src.core.governance import (
+    finalize_governance,
+    find_conflicts,
+    proposed_defaults,
+    require_approver,
+)
 
 
 def register_rule_tools(mcp: FastMCP) -> None:
@@ -94,10 +99,12 @@ def register_rule_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def retire_rule(id: int) -> dict:
-        """Soft-delete (retire) a rule by id.
+        """Soft-delete (retire) a rule by id. APPROVER KEY ONLY.
 
         Retired rules are excluded from get_rules by default. Idempotent.
         """
+        if not require_approver():
+            return {"error": "not_authorized", "hint": "retire requires the approver key"}
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
             existing = await repo.get_by_id(id)

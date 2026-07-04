@@ -548,11 +548,14 @@ async def test_capture_knowledge_overlap_conflict_is_advisory_and_approves_witho
 
 
 async def test_capture_knowledge_supersede_sets_superseded_status_and_backpointer(
-    app_db, fake_app_and_embeddings
+    app_db, fake_app_and_embeddings, monkeypatch
 ):
     """A capture_knowledge call carrying supersedes_id must move the OLD row to the
     distinct 'superseded' status (not 'deprecated') and back-point it at the new row via
-    superseded_by_id — status='superseded' is spec vocabulary, separate from a plain delete."""
+    superseded_by_id — status='superseded' is spec vocabulary, separate from a plain delete.
+    supersedes_id is a de-escalation path (WS-1.4 §5.6), so this exercises the approver-tier
+    behavior explicitly."""
+    monkeypatch.setattr(knowledge_tools_module, "require_approver", lambda: True)
     old_id = await _seed_knowledge(
         app_db,
         app_slug="widget",
@@ -582,9 +585,12 @@ async def test_capture_knowledge_supersede_sets_superseded_status_and_backpointe
         assert old_row.is_active is False
 
 
-async def test_delete_knowledge_still_yields_deprecated_status(app_db):
+async def test_delete_knowledge_still_yields_deprecated_status(app_db, monkeypatch):
     """A plain delete (no supersession) must keep going through deactivate(): status stays
-    'deprecated', and superseded_by_id is never set — supersede() is a distinct code path."""
+    'deprecated', and superseded_by_id is never set — supersede() is a distinct code path.
+    delete_knowledge is gated behind the approver key (WS-1.4 §5.6), so this exercises the
+    approver-tier behavior explicitly."""
+    monkeypatch.setattr(knowledge_tools_module, "require_approver", lambda: True)
     chunk_id = await _seed_knowledge(app_db, app_slug="widget", knowledge_type="deployment")
 
     mcp = _app_mcp()
@@ -596,6 +602,87 @@ async def test_delete_knowledge_still_yields_deprecated_status(app_db):
         assert row.status == "deprecated"
         assert row.superseded_by_id is None
         assert row.is_active is False
+
+
+# ---------------------------------------------------------------------------
+# Approver gate (WS-1.4 §5.6 accepted-risk closure): delete_knowledge is gated
+# unconditionally, capture_knowledge is gated only when supersedes_id is passed
+# (superseding an existing row is the de-escalation path; a plain propose-new
+# capture must stay reachable by a contributor-tier key).
+# ---------------------------------------------------------------------------
+
+async def test_delete_knowledge_denied_without_approver_key(app_db, monkeypatch):
+    """delete_knowledge is a destructive call and must require the approver key — a
+    contributor-key caller must be refused, and the target row left completely untouched
+    (not deactivated/deprecated)."""
+    monkeypatch.setattr(knowledge_tools_module, "require_approver", lambda: False)
+    chunk_id = await _seed_knowledge(app_db, app_slug="widget", knowledge_type="deployment")
+
+    mcp = _app_mcp()
+    result = await mcp.call_tool("delete_knowledge", {"id": str(chunk_id)})
+    body = _data(result)
+    assert body == {"error": "not_authorized", "hint": "delete requires the approver key"}
+
+    async with app_db() as session:
+        row = await session.get(AppKnowledge, chunk_id)
+        assert row.status == "approved"  # unchanged — deactivate() never ran
+        assert row.is_active is True
+        assert row.superseded_by_id is None
+
+
+async def test_capture_knowledge_supersede_denied_without_approver_key(app_db, monkeypatch):
+    """supersedes_id is a de-escalation path (flips an existing approved row to
+    'superseded') and must be gated behind the approver key. A contributor-key caller must
+    be refused before any embed()/DB lookup happens — the old row is left completely
+    untouched and no new (superseding) row is created."""
+    monkeypatch.setattr(knowledge_tools_module, "require_approver", lambda: False)
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("must not be called when denied before any DB/embedding work")
+
+    monkeypatch.setattr(knowledge_tools_module, "AppRepository", _fail)
+    monkeypatch.setattr(knowledge_tools_module, "embed", _fail)
+    monkeypatch.setattr(knowledge_tools_module, "extract_metadata", _fail)
+
+    old_id = await _seed_knowledge(
+        app_db,
+        app_slug="widget",
+        knowledge_type="deployment",
+        content="old deployment notes to keep",
+        status="approved",
+    )
+
+    mcp = _app_mcp()
+    result = await mcp.call_tool(
+        "capture_knowledge",
+        {
+            "app_slug": "widget",
+            "knowledge_type": "deployment",
+            "content": "attempted supersede without approver key",
+            "supersedes_id": str(old_id),
+        },
+    )
+    body = _data(result)
+    assert body == {
+        "error": "not_authorized",
+        "hint": "superseding existing knowledge requires the approver key",
+    }
+
+    async with app_db() as session:
+        old_row = await session.get(AppKnowledge, old_id)
+        assert old_row.status == "approved"
+        assert old_row.superseded_by_id is None
+        assert old_row.is_active is True
+
+        rows = (
+            await session.execute(
+                sa.select(AppKnowledge).where(
+                    AppKnowledge.app_slug == "widget",
+                    AppKnowledge.knowledge_type == "deployment",
+                )
+            )
+        ).scalars().all()
+        assert len(rows) == 1  # only the seeded old row exists — no superseding row created
 
 
 # ---------------------------------------------------------------------------
