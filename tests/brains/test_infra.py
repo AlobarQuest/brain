@@ -609,8 +609,9 @@ async def test_propose_delete_restore_cannot_reach_approved_without_approver_key
     infra_db, monkeypatch
 ):
     """Full self-approval-bypass regression: a contributor-key caller can add_rule
-    (-> proposed) and delete_rule (-> deprecated), but restore_rule must refuse to
-    flip it to approved without the approver key — the rule stays deprecated."""
+    (-> proposed), but delete_rule is now also gated behind the approver key — the
+    bypass chain is blocked one step earlier than before (propose->delete->restore).
+    restore_rule remains gated too, as a defense-in-depth check."""
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
 
     mcp = _infra_mcp()
@@ -627,14 +628,109 @@ async def test_propose_delete_restore_cannot_reach_approved_without_approver_key
     assert _data(added)["status"] == "proposed"
 
     deleted = await mcp.call_tool("delete_rule", {"id": new_id})
-    assert _data(deleted)["retired"] is True
+    assert _data(deleted)["error"] == "not_authorized"
 
     restored = await mcp.call_tool("restore_rule", {"id": new_id})
     assert _data(restored)["error"] == "not_authorized"
 
     async with infra_db() as session:
         rule = await session.get(Rule, new_id)
-        assert rule.status == "deprecated"  # never reached approved
+        assert rule.status == "proposed"  # never reached approved; delete itself was blocked
+
+
+# ---------------------------------------------------------------------------
+# delete_rule approver gate (WS-1.4 spec §5.6) — delete_rule is now gated
+# unconditionally behind the approver key, same pattern as restore_rule.
+# ---------------------------------------------------------------------------
+
+async def test_delete_rule_denied_without_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+    seed_id = await _seed_rule(infra_db, rule="gated-delete-rule")
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("delete_rule", {"id": seed_id})
+    body = _data(result)
+    assert body == {"error": "not_authorized", "hint": "delete requires the approver key"}
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.status == "approved"  # unchanged — retire never ran
+        assert rule.retired_at is None
+
+
+async def test_delete_rule_succeeds_with_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: True)
+    seed_id = await _seed_rule(infra_db, rule="approved-delete-rule")
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("delete_rule", {"id": seed_id})
+    body = _data(result)
+    assert body["retired"] is True
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.status == "deprecated"
+        assert rule.retired_at is not None
+
+
+# ---------------------------------------------------------------------------
+# update_rule approver gate (WS-1.4 spec §5.6) — updating a required-authority
+# rule requires the approver key; informational/recommended rules can still be
+# updated by a contributor key (no regression).
+# ---------------------------------------------------------------------------
+
+async def test_update_rule_on_required_rule_denied_without_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+    seed_id = await _seed_rule(
+        infra_db, rule="required-update-rule", authority="required", reason="original"
+    )
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("update_rule", {"id": seed_id, "reason": "changed"})
+    body = _data(result)
+    assert body == {
+        "error": "not_authorized",
+        "hint": "updating a required-authority rule requires the approver key",
+    }
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.reason == "original"  # unchanged — update never applied
+
+
+async def test_update_rule_on_required_rule_succeeds_with_approver_key(infra_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: True)
+    seed_id = await _seed_rule(
+        infra_db, rule="required-update-rule-2", authority="required", reason="original"
+    )
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("update_rule", {"id": seed_id, "reason": "changed"})
+    body = _data(result)
+    assert body["updated"] is True
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.reason == "changed"
+
+
+async def test_update_rule_on_non_required_rule_succeeds_without_approver_key(
+    infra_db, monkeypatch
+):
+    """No regression: informational/recommended rules keep working for a contributor key."""
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+    seed_id = await _seed_rule(
+        infra_db, rule="recommended-update-rule", authority="recommended", reason="original"
+    )
+
+    mcp = _infra_mcp()
+    result = await mcp.call_tool("update_rule", {"id": seed_id, "reason": "changed"})
+    body = _data(result)
+    assert body["updated"] is True
+
+    async with infra_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.reason == "changed"
 
 
 # ---------------------------------------------------------------------------

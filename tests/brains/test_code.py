@@ -926,3 +926,47 @@ def test_seed_governance_dicts_include_governance_keys():
     assert stamp["proposed_by"] == "seed"
     assert stamp["reviewed_by"] == "seed"
     assert stamp["reviewed_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# retire_rule approver gate (WS-1.4 spec §5.6 accepted-risk closure) — a
+# contributor-tier key must not be able to retire (soft-delete) a rule; only
+# the approver key may. Mirrors tests/brains/test_infra.py's
+# test_restore_rule_denied_without_approver_key / _succeeds_with_approver_key.
+# ---------------------------------------------------------------------------
+
+
+async def test_retire_rule_denied_without_approver_key(code_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
+    await _seed_road(code_db, slug="road-retire-denied")
+    seed_id = await _seed_rule(
+        code_db, road_slug="road-retire-denied", rule="gated-retire-rule", status="approved",
+    )
+
+    mcp = _code_mcp()
+    result = await mcp.call_tool("retire_rule", {"id": seed_id})
+    body = _data(result)
+    assert body == {"error": "not_authorized", "hint": "retire requires the approver key"}
+
+    async with code_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.retired_at is None  # unchanged — retire never ran
+        assert rule.status == "approved"  # unchanged — retire never ran
+
+
+async def test_retire_rule_succeeds_with_approver_key(code_db, monkeypatch):
+    monkeypatch.setattr(rules_tools_module, "require_approver", lambda: True)
+    await _seed_road(code_db, slug="road-retire-allowed")
+    seed_id = await _seed_rule(
+        code_db, road_slug="road-retire-allowed", rule="approved-retire-rule", status="approved",
+    )
+
+    mcp = _code_mcp()
+    result = await mcp.call_tool("retire_rule", {"id": seed_id})
+    body = _data(result)
+    assert body == {"retired": True, "id": seed_id, "already_retired": False}
+
+    async with code_db() as session:
+        rule = await session.get(Rule, seed_id)
+        assert rule.retired_at is not None
+        assert rule.status == "deprecated"

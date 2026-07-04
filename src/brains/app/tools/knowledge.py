@@ -14,7 +14,12 @@ from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.onboarding import run_onboarding_job
 from src.brains.app.services.openrouter import embed, extract_metadata
 from src.core.db import get_session_factory
-from src.core.governance import finalize_governance, find_conflicts, proposed_defaults
+from src.core.governance import (
+    finalize_governance,
+    find_conflicts,
+    proposed_defaults,
+    require_approver,
+)
 
 logger = logging.getLogger("app_brain.tools")
 
@@ -132,11 +137,18 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         """Store a new knowledge chunk for an app (status=proposed by default; approved only
         with the approver key and auto_approve=True). Auto-generates embedding and extracts
         metadata. A candidate whose (app_slug, knowledge_type) overlaps an approved
-        recommended/required chunk is flagged (advisory; never blocks auto-approve)."""
+        recommended/required chunk is flagged (advisory; never blocks auto-approve).
+        Passing supersedes_id (superseding an existing chunk) is a de-escalation path and
+        requires the approver key — a plain capture with no supersedes_id is unaffected."""
         if knowledge_type not in KNOWLEDGE_TYPES:
             return {"error": f"invalid_params: knowledge_type must be one of {', '.join(KNOWLEDGE_TYPES)}"}
         if source not in SOURCE_VALUES:
             return {"error": f"invalid_params: source must be one of {', '.join(SOURCE_VALUES)}"}
+        if supersedes_id is not None and not require_approver():
+            return {
+                "error": "not_authorized",
+                "hint": "superseding existing knowledge requires the approver key",
+            }
 
         async with get_session_factory()() as session:
             app_repo = AppRepository(session)
@@ -200,7 +212,9 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def delete_knowledge(id: str) -> dict:
-        """Soft-delete a knowledge chunk by ID (marks as inactive)."""
+        """Soft-delete a knowledge chunk by ID (marks as inactive). APPROVER KEY ONLY."""
+        if not require_approver():
+            return {"error": "not_authorized", "hint": "delete requires the approver key"}
         async with get_session_factory()() as session:
             repo = KnowledgeRepository(session)
             deactivated = await repo.deactivate(uuid.UUID(id))
