@@ -1,14 +1,22 @@
-from typing import Optional
-
 from fastmcp import FastMCP
 
-from src.core.db import get_session_factory
 from src.brains.app.repositories.apps import AppRepository
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
+from src.core.db import get_session_factory
 
 APP_STATUSES = ["active", "archived", "in-progress", "paused"]
-UPDATABLE_FIELDS = ["name", "description", "tech_stack", "status", "deployment_url", "tags", "repo_path", "github_repo", "environments"]
+UPDATABLE_FIELDS = [
+    "name",
+    "description",
+    "tech_stack",
+    "status",
+    "deployment_url",
+    "tags",
+    "repo_path",
+    "github_repo",
+    "environments",
+]
 
 
 def serialize_app_profile(app, coverage: dict) -> dict:
@@ -38,8 +46,8 @@ def register_app_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def list_apps(
-        status: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict:
         """List all registered apps with optional filters by status or tags."""
         async with get_session_factory()() as session:
@@ -66,15 +74,15 @@ def register_app_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def update_app(
         slug: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        tech_stack: Optional[dict] = None,
-        status: Optional[str] = None,
-        deployment_url: Optional[str] = None,
-        tags: Optional[list[str]] = None,
-        repo_path: Optional[str] = None,
-        github_repo: Optional[str] = None,
-        environments: Optional[list[dict]] = None,
+        name: str | None = None,
+        description: str | None = None,
+        tech_stack: dict | None = None,
+        status: str | None = None,
+        deployment_url: str | None = None,
+        tags: list[str] | None = None,
+        repo_path: str | None = None,
+        github_repo: str | None = None,
+        environments: list[dict] | None = None,
     ) -> dict:
         """Update structured fields on an app (name, description, tech_stack, status, tags, repo_path, deployment_url, github_repo, environments).
 
@@ -82,9 +90,15 @@ def register_app_tools(mcp: FastMCP) -> None:
         per environment, the git branch each one deploys from.
         """
         all_fields = {
-            "name": name, "description": description, "tech_stack": tech_stack,
-            "status": status, "deployment_url": deployment_url, "tags": tags, "repo_path": repo_path,
-            "github_repo": github_repo, "environments": environments,
+            "name": name,
+            "description": description,
+            "tech_stack": tech_stack,
+            "status": status,
+            "deployment_url": deployment_url,
+            "tags": tags,
+            "repo_path": repo_path,
+            "github_repo": github_repo,
+            "environments": environments,
         }
         fields = {k: v for k, v in all_fields.items() if v is not None}
         if not fields:
@@ -99,4 +113,9 @@ def register_app_tools(mcp: FastMCP) -> None:
                 return {"error": "not_found"}
             await session.commit()
 
-        return {"slug": app.slug, "name": app.name, "status": app.status, "updated": list(fields.keys())}
+        return {
+            "slug": app.slug,
+            "name": app.name,
+            "status": app.status,
+            "updated": list(fields.keys()),
+        }

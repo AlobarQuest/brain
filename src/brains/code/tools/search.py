@@ -26,8 +26,11 @@ def register_search_tools(mcp: FastMCP) -> None:
         limit = max(1, min(limit, 50))
         async with get_session_factory()() as session:
             results = await SearchRepository(session).search(
-                query=query, tags=tags, limit=limit,
-                include_proposed=include_proposed, min_authority=min_authority,
+                query=query,
+                tags=tags,
+                limit=limit,
+                include_proposed=include_proposed,
+                min_authority=min_authority,
             )
             return {
                 "roads": [road_dict(r) for r in results["roads"]],

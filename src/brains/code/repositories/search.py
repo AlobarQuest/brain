@@ -21,8 +21,11 @@ class SearchRepository:
         self.session = session
 
     def _governance_filter(
-        self, status_col: InstrumentedAttribute[str], authority_col: InstrumentedAttribute[str],
-        include_proposed: bool, min_authority: str | None,
+        self,
+        status_col: InstrumentedAttribute[str],
+        authority_col: InstrumentedAttribute[str],
+        include_proposed: bool,
+        min_authority: str | None,
     ) -> list[ColumnElement]:
         allowed_statuses = [STATUS_APPROVED] + ([STATUS_PROPOSED] if include_proposed else [])
         clauses: list[ColumnElement] = [status_col.in_(allowed_statuses)]

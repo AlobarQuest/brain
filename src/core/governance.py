@@ -4,6 +4,7 @@ approver gate, the conflict engine, and the approve/reject/deprecate tools.
 Base-agnostic on purpose — code-brain uses an isolated DeclarativeBase, so
 GovernanceMixin must not reference any concrete Base.
 """
+
 from __future__ import annotations
 
 import hmac
@@ -257,8 +258,11 @@ async def _approve_record(
         rec, err = await _get_governed_record(session, records, record_type, id)
         if err:
             return err
-        if (rec.conflict_kind == CONFLICT_DUPLICATE
-                and rec.conflict_acknowledged_at is None and not acknowledge_conflict):
+        if (
+            rec.conflict_kind == CONFLICT_DUPLICATE
+            and rec.conflict_acknowledged_at is None
+            and not acknowledge_conflict
+        ):
             return {"error": "conflict_unacknowledged", "conflict_note": rec.conflict_note}
         rec.status = STATUS_APPROVED
         rec.reviewed_by = APPROVER_IDENTITY
@@ -310,9 +314,7 @@ def register_governance_tools(mcp, records: dict[str, type]) -> None:
     `records` maps a record_type name → its GovernanceMixin model class."""
 
     @mcp.tool()
-    async def approve(
-        record_type: str, id: int | str, acknowledge_conflict: bool = False
-    ) -> dict:
+    async def approve(record_type: str, id: int | str, acknowledge_conflict: bool = False) -> dict:
         """Approve a proposed record (proposed→approved). APPROVER KEY ONLY.
         A duplicate-conflict flag must be acknowledged (acknowledge_conflict=True);
         an overlap flag is advisory and never blocks. id is int for Integer-PK record

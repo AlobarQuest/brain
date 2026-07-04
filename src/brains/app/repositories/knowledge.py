@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +37,7 @@ class KnowledgeRepository:
         app_slug: str,
         knowledge_type: str,
         content_hash: str,
-    ) -> Optional[AppKnowledge]:
+    ) -> AppKnowledge | None:
         result = await self.session.execute(
             select(AppKnowledge)
             .where(
@@ -51,10 +50,8 @@ class KnowledgeRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, chunk_id: uuid.UUID) -> Optional[AppKnowledge]:
-        result = await self.session.execute(
-            select(AppKnowledge).where(AppKnowledge.id == chunk_id)
-        )
+    async def get_by_id(self, chunk_id: uuid.UUID) -> AppKnowledge | None:
+        result = await self.session.execute(select(AppKnowledge).where(AppKnowledge.id == chunk_id))
         return result.scalar_one_or_none()
 
     async def deactivate(self, chunk_id: uuid.UUID) -> bool:
@@ -81,9 +78,7 @@ class KnowledgeRepository:
         return result.rowcount > 0
 
     async def delete_by_id(self, chunk_id: uuid.UUID) -> bool:
-        result = await self.session.execute(
-            delete(AppKnowledge).where(AppKnowledge.id == chunk_id)
-        )
+        result = await self.session.execute(delete(AppKnowledge).where(AppKnowledge.id == chunk_id))
         return result.rowcount > 0
 
     async def search_semantic(
@@ -91,8 +86,8 @@ class KnowledgeRepository:
         query_embedding: list[float],
         threshold: float = 0.5,
         limit: int = 10,
-        app_slug: Optional[str] = None,
-        knowledge_type: Optional[str] = None,
+        app_slug: str | None = None,
+        knowledge_type: str | None = None,
         include_proposed: bool = False,
         min_authority: str | None = None,
     ) -> list[dict]:
@@ -180,8 +175,8 @@ class KnowledgeRepository:
         self,
         query: str,
         limit: int = 10,
-        app_slug: Optional[str] = None,
-        knowledge_type: Optional[str] = None,
+        app_slug: str | None = None,
+        knowledge_type: str | None = None,
         include_proposed: bool = False,
         min_authority: str | None = None,
     ) -> list[dict]:
@@ -237,7 +232,7 @@ class KnowledgeRepository:
     async def list_knowledge(
         self,
         app_slug: str,
-        knowledge_type: Optional[str] = None,
+        knowledge_type: str | None = None,
         limit: int = 20,
         offset: int = 0,
         active_only: bool = True,

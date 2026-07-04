@@ -1,5 +1,5 @@
-import subprocess
 import os
+import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -42,4 +42,6 @@ def test_start_sh_bogus_brain_type():
     )
     assert result.returncode != 0, "Should fail with unknown BRAIN_TYPE"
     # Verify it fails at the directory check, before reaching alembic/uvicorn
-    assert b"unknown BRAIN_TYPE" in result.stderr, f"Error message should mention unknown BRAIN_TYPE, got: {result.stderr.decode()}"
+    assert b"unknown BRAIN_TYPE" in result.stderr, (
+        f"Error message should mention unknown BRAIN_TYPE, got: {result.stderr.decode()}"
+    )

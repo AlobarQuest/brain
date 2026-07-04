@@ -75,8 +75,7 @@ def register_road_tools(mcp: FastMCP) -> None:
         category and status must be valid enum values.
         """
         return await _do_add_road(
-            slug, name, category, status, summary, decided_approach, home,
-            owner_standard, adr_ref
+            slug, name, category, status, summary, decided_approach, home, owner_standard, adr_ref
         )
 
     @mcp.tool()
@@ -99,8 +98,17 @@ def register_road_tools(mcp: FastMCP) -> None:
         validation_note. The slug is immutable.
         """
         return await _do_update_road(
-            slug, status, decided_approach, home, owner_standard, adr_ref,
-            last_validated_at, validation_note, name, summary, category
+            slug,
+            status,
+            decided_approach,
+            home,
+            owner_standard,
+            adr_ref,
+            last_validated_at,
+            validation_note,
+            name,
+            summary,
+            category,
         )
 
 
@@ -166,17 +174,19 @@ async def _do_add_road(
         repo = RoadRepository(session)
         if await repo.get_by_slug(slug) is not None:
             return {"error": "already_exists", "slug": slug}
-        road = await repo.add({
-            "slug": slug,
-            "name": name,
-            "category": category,
-            "status": status,
-            "summary": summary,
-            "decided_approach": decided_approach,
-            "home": home,
-            "owner_standard": owner_standard,
-            "adr_ref": adr_ref,
-        })
+        road = await repo.add(
+            {
+                "slug": slug,
+                "name": name,
+                "category": category,
+                "status": status,
+                "summary": summary,
+                "decided_approach": decided_approach,
+                "home": home,
+                "owner_standard": owner_standard,
+                "adr_ref": adr_ref,
+            }
+        )
         await session.commit()
         return {"created": True, "slug": road.slug}
 
@@ -205,10 +215,7 @@ async def _do_update_road(
         if validated_at is None:
             return {
                 "error": "invalid_timestamp",
-                "hint": (
-                    "last_validated_at must be ISO-8601, "
-                    "e.g. 2026-06-30T12:00:00Z"
-                ),
+                "hint": ("last_validated_at must be ISO-8601, e.g. 2026-06-30T12:00:00Z"),
             }
     fields = {
         k: v

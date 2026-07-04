@@ -3,8 +3,16 @@ import httpx
 from src.core.config import get_settings
 
 KNOWLEDGE_TYPES = [
-    "architecture", "business", "intent", "requirements",
-    "api", "data_model", "deployment", "status", "feature", "rules",
+    "architecture",
+    "business",
+    "intent",
+    "requirements",
+    "api",
+    "data_model",
+    "deployment",
+    "status",
+    "feature",
+    "rules",
 ]
 
 HINT_FALLBACKS = {
@@ -34,15 +42,17 @@ async def _classify_via_llm(content: str, hint: str) -> str:
             },
             json={
                 "model": "openai/gpt-4o-mini",
-                "messages": [{
-                    "role": "user",
-                    "content": (
-                        f"Classify this knowledge chunk into exactly one of these types: {TYPES_LIST}\n\n"
-                        f'The chunk comes from a "{hint}" document.\n'
-                        f"Reply with just the type name, nothing else.\n\n"
-                        f"Chunk:\n{content[:500]}"
-                    ),
-                }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Classify this knowledge chunk into exactly one of these types: {TYPES_LIST}\n\n"
+                            f'The chunk comes from a "{hint}" document.\n'
+                            f"Reply with just the type name, nothing else.\n\n"
+                            f"Chunk:\n{content[:500]}"
+                        ),
+                    }
+                ],
             },
         )
         if not r.is_success:

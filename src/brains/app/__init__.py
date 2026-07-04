@@ -55,6 +55,7 @@ def register_routes(app) -> None:
 async def startup() -> None:
     from src.brains.app.repositories.apps import AppRepository
     from src.core.db import get_session_factory
+
     async with get_session_factory()() as session:
         await AppRepository(session).fail_stale_running()
         await session.commit()

@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-06-30
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -17,8 +18,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _CATEGORIES = (
-    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', "
-    "'security', 'ai'"
+    "'application', 'data', 'api', 'frontend', 'delivery-ops', 'quality', 'security', 'ai'"
 )
 _STATUSES = "'paved', 'partial', 'unpaved', 'paving'"
 

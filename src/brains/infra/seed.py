@@ -6,18 +6,19 @@ Usage:
     python -m src.brains.infra.seed --skip-existing
     python -m src.brains.infra.seed --force       # overwrite all records
 """
+
 import argparse
 import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.core.db import get_session_factory
 from src.brains.infra.models import Combo
 from src.brains.infra.repositories.combos import ComboRepository
 from src.brains.infra.repositories.lessons import LessonRepository
 from src.brains.infra.repositories.rules import RuleRepository
 from src.brains.infra.repositories.versions import VersionRepository
+from src.core.db import get_session_factory
 from src.core.governance import AUTHORITY_INFORMATIONAL, STATUS_APPROVED
 
 
@@ -151,7 +152,12 @@ async def seed(skip_existing: bool = True) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed Infra Brain database")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--skip-existing", action="store_true", default=True, help="Skip records that already exist (default)")
+    group.add_argument(
+        "--skip-existing",
+        action="store_true",
+        default=True,
+        help="Skip records that already exist (default)",
+    )
     group.add_argument("--force", action="store_true", help="Overwrite all existing records")
     args = parser.parse_args()
 

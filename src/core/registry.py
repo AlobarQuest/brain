@@ -1,7 +1,7 @@
 import importlib
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
-from src.core.config import BrainType
+
 
 @dataclass(frozen=True)
 class Capabilities:
@@ -9,10 +9,13 @@ class Capabilities:
     auth_exact: tuple[str, ...] = ("/api/health",)
     auth_prefixes: tuple[str, ...] = ()
 
+
 @runtime_checkable
 class BrainModule(Protocol):
     capabilities: Capabilities
+
     def register(self, mcp) -> None: ...
+
 
 def load_brain(brain_type) -> BrainModule:
     try:

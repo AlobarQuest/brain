@@ -5,6 +5,7 @@ get_settings() so lru_cache state from one test cannot bleed into the next.
 This makes the suite hermetic: local == CI regardless of the developer's
 shell environment.
 """
+
 import pytest
 
 # All env vars consumed by src.core.config.Settings
@@ -34,11 +35,11 @@ def clear_brain_env(monkeypatch):
     # Also disable .env file loading: pydantic-settings reads the file as a
     # source independent of os.environ, so delenv alone leaves a local .env
     # (e.g. left over from a compose session) able to leak into Settings().
-    from src.core.config import Settings
     from pydantic_settings import SettingsConfigDict
-    monkeypatch.setattr(
-        Settings, "model_config", SettingsConfigDict(env_file=None, extra="ignore")
-    )
+
+    from src.core.config import Settings
+
+    monkeypatch.setattr(Settings, "model_config", SettingsConfigDict(env_file=None, extra="ignore"))
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_session_factory.cache_clear()

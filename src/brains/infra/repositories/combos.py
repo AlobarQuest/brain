@@ -11,9 +11,7 @@ class ComboRepository:
 
     async def get_by_name(self, name: str) -> Combo | None:
         """Get a combo by name."""
-        result = await self.session.execute(
-            select(Combo).where(Combo.name == name)
-        )
+        result = await self.session.execute(select(Combo).where(Combo.name == name))
         return result.scalar_one_or_none()
 
     async def list_all(

@@ -24,6 +24,7 @@ if not database_url:
         database_url = fallback
 if not database_url:
     from src.core.config import get_settings
+
     database_url = get_settings().effective_database_url()
 
 

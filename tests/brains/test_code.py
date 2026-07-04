@@ -2,6 +2,7 @@
 
 Mirrors tests/brains/test_infra.py — the code brain is modeled directly on infra.
 """
+
 import datetime
 import json
 from pathlib import Path
@@ -29,6 +30,7 @@ from src.core.registry import Capabilities, load_brain
 # ---------------------------------------------------------------------------
 # Capabilities
 # ---------------------------------------------------------------------------
+
 
 def test_code_capabilities():
     brain = load_brain(BrainType.CODE)
@@ -168,11 +170,13 @@ def _code_app(monkeypatch):
     monkeypatch.setenv("POSTGRES_DB", "x")
 
     import src.brains.code as code
-    monkeypatch.setattr(code, "get_session_factory", lambda: (lambda: _FakeSession()))
+
+    monkeypatch.setattr(code, "get_session_factory", lambda: lambda: _FakeSession())
     monkeypatch.setattr(code, "RuleRepository", _FakeRuleRepo)
     monkeypatch.setattr(code, "RoadRepository", _FakeRoadRepo)
 
     from src.core.app import create_app
+
     return create_app()
 
 
@@ -222,6 +226,7 @@ async def test_api_roads_returns_roads_with_key(monkeypatch):
 # Model metadata — the four tables live in the code brain's own metadata
 # ---------------------------------------------------------------------------
 
+
 def test_models_define_four_tables():
     from src.brains.code import models
 
@@ -243,8 +248,14 @@ def test_code_models_use_isolated_metadata():
 # ---------------------------------------------------------------------------
 
 VALID_CATEGORIES = {
-    "application", "data", "api", "frontend",
-    "delivery-ops", "quality", "security", "ai",
+    "application",
+    "data",
+    "api",
+    "frontend",
+    "delivery-ops",
+    "quality",
+    "security",
+    "ai",
 }
 VALID_STATUSES = {"paved", "partial", "unpaved", "paving"}
 
@@ -303,6 +314,7 @@ class _FakeRoadRepoMissing:
 async def test_api_road_missing_returns_404(monkeypatch):
     app = _code_app(monkeypatch)
     import src.brains.code as code
+
     monkeypatch.setattr(code, "RoadRepository", _FakeRoadRepoMissing)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
@@ -394,8 +406,14 @@ def _code_mcp() -> FastMCP:
 async def _seed_road(factory, **overrides) -> str:
     """Insert a Road row directly, for seeding the parent a Rule/Lesson/Exemplar FK needs."""
     defaults = dict(
-        slug="test-road", name="Test Road", category="quality", status="paved",
-        summary="test road", decided_approach=None, home=None, owner_standard=None,
+        slug="test-road",
+        name="Test Road",
+        category="quality",
+        status="paved",
+        summary="test road",
+        decided_approach=None,
+        home=None,
+        owner_standard=None,
         adr_ref=None,
     )
     defaults.update(overrides)
@@ -409,10 +427,19 @@ async def _seed_rule(factory, **overrides) -> int:
     """Insert a Rule row directly (bypassing add_rule), for seeding an already-approved
     conflict target or a fixed-status row."""
     defaults = dict(
-        road_slug="test-road", category="security", severity="BLOCK",
-        rule="seed-rule", reason="seed", source=None, check=None,
-        good_example=None, bad_example=None,
-        status="approved", authority="informational", applicability={}, version=1,
+        road_slug="test-road",
+        category="security",
+        severity="BLOCK",
+        rule="seed-rule",
+        reason="seed",
+        source=None,
+        check=None,
+        good_example=None,
+        bad_example=None,
+        status="approved",
+        authority="informational",
+        applicability={},
+        version=1,
     )
     defaults.update(overrides)
     async with factory() as session:
@@ -430,9 +457,15 @@ async def _seed_lesson(factory, **overrides) -> int:
     (see tests/brains/test_infra.py's identical helper). Uses a Core insert() rather than
     constructing the ORM object for the same reason."""
     defaults = dict(
-        road_slug="test-road", title="seed-lesson", content="seed content", tags=None,
+        road_slug="test-road",
+        title="seed-lesson",
+        content="seed content",
+        tags=None,
         source_app=None,
-        status="approved", authority="informational", applicability={}, version=1,
+        status="approved",
+        authority="informational",
+        applicability={},
+        version=1,
     )
     defaults.update(overrides)
     async with factory() as session:
@@ -445,8 +478,14 @@ async def _seed_lesson(factory, **overrides) -> int:
 async def _seed_exemplar(factory, **overrides) -> int:
     """Insert an Exemplar row directly (bypassing add_exemplar), for seeding fixed-status rows."""
     defaults = dict(
-        road_slug="test-road", label="seed-exemplar", location="path/to/file", note=None,
-        status="approved", authority="informational", applicability={}, version=1,
+        road_slug="test-road",
+        label="seed-exemplar",
+        location="path/to/file",
+        note=None,
+        status="approved",
+        authority="informational",
+        applicability={},
+        version=1,
     )
     defaults.update(overrides)
     async with factory() as session:
@@ -463,8 +502,11 @@ async def test_add_rule_is_proposed_by_default(code_db):
     result = await mcp.call_tool(
         "add_rule",
         {
-            "road_slug": "road-a", "severity": "WARN", "category": "quality",
-            "rule": "r1", "reason": "why",
+            "road_slug": "road-a",
+            "severity": "WARN",
+            "category": "quality",
+            "rule": "r1",
+            "reason": "why",
         },
     )
     body = _data(result)
@@ -512,7 +554,7 @@ async def test_add_lesson_is_proposed_by_default(monkeypatch):
     propose-only wiring under test from that pre-existing, Postgres-only-in-prod SQLite test
     limitation."""
     monkeypatch.setattr(
-        lessons_tools_module, "get_session_factory", lambda: (lambda: _FakeCommitSession())
+        lessons_tools_module, "get_session_factory", lambda: lambda: _FakeCommitSession()
     )
     monkeypatch.setattr(lessons_tools_module, "RoadRepository", _FoundRoadRepo)
     monkeypatch.setattr(lessons_tools_module, "LessonRepository", _RecordingLessonRepo)
@@ -547,8 +589,11 @@ async def test_get_rules_default_excludes_proposed_include_proposed_includes(cod
     added = await mcp.call_tool(
         "add_rule",
         {
-            "road_slug": "road-d", "severity": "WARN", "category": "quality",
-            "rule": "r2", "reason": "why",
+            "road_slug": "road-d",
+            "severity": "WARN",
+            "category": "quality",
+            "rule": "r2",
+            "reason": "why",
         },
     )
     new_id = _data(added)["id"]
@@ -634,20 +679,32 @@ async def test_get_road_min_authority_filters_embedded_rules(code_db):
 async def test_search_excludes_deprecated_rule_and_lesson_by_default(code_db):
     await _seed_road(code_db, slug="road-h")
     await _seed_rule(
-        code_db, road_slug="road-h", rule="deprecated search rule",
-        reason="findme", status="deprecated",
+        code_db,
+        road_slug="road-h",
+        rule="deprecated search rule",
+        reason="findme",
+        status="deprecated",
     )
     approved_rule_id = await _seed_rule(
-        code_db, road_slug="road-h", rule="approved search rule",
-        reason="findme", status="approved",
+        code_db,
+        road_slug="road-h",
+        rule="approved search rule",
+        reason="findme",
+        status="approved",
     )
     await _seed_lesson(
-        code_db, road_slug="road-h", title="deprecated search lesson",
-        content="findme", status="deprecated",
+        code_db,
+        road_slug="road-h",
+        title="deprecated search lesson",
+        content="findme",
+        status="deprecated",
     )
     approved_lesson_id = await _seed_lesson(
-        code_db, road_slug="road-h", title="approved search lesson",
-        content="findme", status="approved",
+        code_db,
+        road_slug="road-h",
+        title="approved search lesson",
+        content="findme",
+        status="approved",
     )
 
     mcp = _code_mcp()
@@ -660,20 +717,32 @@ async def test_search_excludes_deprecated_rule_and_lesson_by_default(code_db):
 async def test_search_include_proposed_surfaces_proposed_rule_and_lesson(code_db):
     await _seed_road(code_db, slug="road-h2")
     approved_rule_id = await _seed_rule(
-        code_db, road_slug="road-h2", rule="approved search rule two",
-        reason="findme2", status="approved",
+        code_db,
+        road_slug="road-h2",
+        rule="approved search rule two",
+        reason="findme2",
+        status="approved",
     )
     proposed_rule_id = await _seed_rule(
-        code_db, road_slug="road-h2", rule="proposed search rule two",
-        reason="findme2", status="proposed",
+        code_db,
+        road_slug="road-h2",
+        rule="proposed search rule two",
+        reason="findme2",
+        status="proposed",
     )
     approved_lesson_id = await _seed_lesson(
-        code_db, road_slug="road-h2", title="approved search lesson two",
-        content="findme2", status="approved",
+        code_db,
+        road_slug="road-h2",
+        title="approved search lesson two",
+        content="findme2",
+        status="approved",
     )
     proposed_lesson_id = await _seed_lesson(
-        code_db, road_slug="road-h2", title="proposed search lesson two",
-        content="findme2", status="proposed",
+        code_db,
+        road_slug="road-h2",
+        title="proposed search lesson two",
+        content="findme2",
+        status="proposed",
     )
 
     mcp = _code_mcp()
@@ -691,20 +760,32 @@ async def test_search_include_proposed_surfaces_proposed_rule_and_lesson(code_db
 async def test_search_min_authority_filters_rules_and_lessons(code_db):
     await _seed_road(code_db, slug="road-h3")
     required_rule_id = await _seed_rule(
-        code_db, road_slug="road-h3", rule="required search rule three",
-        reason="findme3", authority="required",
+        code_db,
+        road_slug="road-h3",
+        rule="required search rule three",
+        reason="findme3",
+        authority="required",
     )
     await _seed_rule(
-        code_db, road_slug="road-h3", rule="informational search rule three",
-        reason="findme3", authority="informational",
+        code_db,
+        road_slug="road-h3",
+        rule="informational search rule three",
+        reason="findme3",
+        authority="informational",
     )
     required_lesson_id = await _seed_lesson(
-        code_db, road_slug="road-h3", title="required search lesson three",
-        content="findme3", authority="required",
+        code_db,
+        road_slug="road-h3",
+        title="required search lesson three",
+        content="findme3",
+        authority="required",
     )
     await _seed_lesson(
-        code_db, road_slug="road-h3", title="informational search lesson three",
-        content="findme3", authority="informational",
+        code_db,
+        road_slug="road-h3",
+        title="informational search lesson three",
+        content="findme3",
+        authority="informational",
     )
 
     mcp = _code_mcp()
@@ -721,17 +802,26 @@ async def test_add_rule_duplicate_conflict_blocks_auto_approve_until_acknowledge
     await _seed_road(code_db, slug="road-i")
     chk = {"kind": "forbidden_pattern", "pattern": "P"}
     seed_id = await _seed_rule(
-        code_db, road_slug="road-i", rule="required-rule-base", category="security",
-        authority="required", check=chk,
+        code_db,
+        road_slug="road-i",
+        rule="required-rule-base",
+        category="security",
+        authority="required",
+        check=chk,
     )
 
     mcp = _code_mcp()
     added = await mcp.call_tool(
         "add_rule",
         {
-            "road_slug": "road-i", "severity": "BLOCK", "category": "security",
-            "rule": "required-rule-dup", "reason": "candidate", "check": chk,
-            "proposed_by": "agent-x", "auto_approve": True,
+            "road_slug": "road-i",
+            "severity": "BLOCK",
+            "category": "security",
+            "rule": "required-rule-dup",
+            "reason": "candidate",
+            "check": chk,
+            "proposed_by": "agent-x",
+            "auto_approve": True,
         },
     )
     body = _data(added)
@@ -772,17 +862,26 @@ async def test_add_rule_judgment_check_never_flagged_as_duplicate(code_db, monke
     await _seed_road(code_db, slug="road-j")
     chk = {"kind": "judgment", "prompt": "Does this violate the spirit of X?"}
     await _seed_rule(
-        code_db, road_slug="road-j", rule="judgment-rule-base", category="quality",
-        authority="required", check=chk,
+        code_db,
+        road_slug="road-j",
+        rule="judgment-rule-base",
+        category="quality",
+        authority="required",
+        check=chk,
     )
 
     mcp = _code_mcp()
     added = await mcp.call_tool(
         "add_rule",
         {
-            "road_slug": "road-j", "severity": "WARN", "category": "testing",
-            "rule": "judgment-rule-dup", "reason": "candidate", "check": chk,
-            "proposed_by": "agent-x", "auto_approve": True,
+            "road_slug": "road-j",
+            "severity": "WARN",
+            "category": "testing",
+            "rule": "judgment-rule-dup",
+            "reason": "candidate",
+            "check": chk,
+            "proposed_by": "agent-x",
+            "auto_approve": True,
         },
     )
     body = _data(added)
@@ -799,17 +898,26 @@ async def test_add_rule_judgment_check_can_still_flag_overlap_on_matching_applic
     await _seed_road(code_db, slug="road-j2")
     chk = {"kind": "judgment", "prompt": "Does this violate the spirit of X?"}
     await _seed_rule(
-        code_db, road_slug="road-j2", rule="judgment-rule-base-2", category="quality",
-        authority="required", check=chk,
+        code_db,
+        road_slug="road-j2",
+        rule="judgment-rule-base-2",
+        category="quality",
+        authority="required",
+        check=chk,
     )
 
     mcp = _code_mcp()
     added = await mcp.call_tool(
         "add_rule",
         {
-            "road_slug": "road-j2", "severity": "WARN", "category": "quality",
-            "rule": "judgment-rule-dup-2", "reason": "candidate", "check": chk,
-            "proposed_by": "agent-x", "auto_approve": True,
+            "road_slug": "road-j2",
+            "severity": "WARN",
+            "category": "quality",
+            "rule": "judgment-rule-dup-2",
+            "reason": "candidate",
+            "check": chk,
+            "proposed_by": "agent-x",
+            "auto_approve": True,
         },
     )
     body = _data(added)
@@ -824,8 +932,11 @@ async def test_add_road_still_works_unchanged(code_db):
     result = await mcp.call_tool(
         "add_road",
         {
-            "slug": "road-k", "name": "Road K", "category": "quality",
-            "status": "unpaved", "summary": "a road",
+            "slug": "road-k",
+            "name": "Road K",
+            "category": "quality",
+            "status": "unpaved",
+            "summary": "a road",
         },
     )
     body = _data(result)
@@ -850,6 +961,7 @@ async def test_add_road_still_works_unchanged(code_db):
 # the real code_db SQLite fixture since neither Road nor code-brain Rule seed
 # rows carry a Postgres ARRAY column (unlike infra brain's Version/Combo).
 # ---------------------------------------------------------------------------
+
 
 def _sqlite_ddl_table_with_unique(
     name: str, orm_table: sa.FromClause, metadata: sa.MetaData
@@ -903,7 +1015,10 @@ async def test_seed_lands_rules_as_approved_roads_stay_ungoverned(code_seed_db):
     assert rules, "seed must insert at least one rule"
     for road in roads:
         assert not hasattr(road, "status") or road.status in {
-            "paved", "partial", "unpaved", "paving"
+            "paved",
+            "partial",
+            "unpaved",
+            "paving",
         }
         assert not hasattr(road, "authority")  # roads are ungoverned
     for rule in rules:
@@ -940,7 +1055,10 @@ async def test_retire_rule_denied_without_approver_key(code_db, monkeypatch):
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
     await _seed_road(code_db, slug="road-retire-denied")
     seed_id = await _seed_rule(
-        code_db, road_slug="road-retire-denied", rule="gated-retire-rule", status="approved",
+        code_db,
+        road_slug="road-retire-denied",
+        rule="gated-retire-rule",
+        status="approved",
     )
 
     mcp = _code_mcp()
@@ -958,7 +1076,10 @@ async def test_retire_rule_succeeds_with_approver_key(code_db, monkeypatch):
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: True)
     await _seed_road(code_db, slug="road-retire-allowed")
     seed_id = await _seed_rule(
-        code_db, road_slug="road-retire-allowed", rule="approved-retire-rule", status="approved",
+        code_db,
+        road_slug="road-retire-allowed",
+        rule="approved-retire-rule",
+        status="approved",
     )
 
     mcp = _code_mcp()

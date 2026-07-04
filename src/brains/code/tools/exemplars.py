@@ -24,7 +24,10 @@ def register_exemplar_tools(mcp: FastMCP) -> None:
             if await RoadRepository(session).get_by_slug(road_slug) is None:
                 return {"error": "unknown_road", "road_slug": road_slug}
             data = {
-                "road_slug": road_slug, "label": label, "location": location, "note": note,
+                "road_slug": road_slug,
+                "label": label,
+                "location": location,
+                "note": note,
             }
             data.update(
                 proposed_defaults(

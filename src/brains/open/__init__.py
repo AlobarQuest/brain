@@ -1,5 +1,5 @@
-from src.core.registry import Capabilities
 from src.brains.open.tools.thoughts import register_thought_tools
+from src.core.registry import Capabilities
 
 capabilities = Capabilities(embeddings=True, auth_exact=("/api/health",), auth_prefixes=())
 

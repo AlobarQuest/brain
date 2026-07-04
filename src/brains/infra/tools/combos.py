@@ -1,7 +1,7 @@
 from fastmcp import FastMCP
 
-from src.core.db import get_session_factory
 from src.brains.infra.repositories.combos import ComboRepository
+from src.core.db import get_session_factory
 
 
 def register_combo_tools(mcp: FastMCP) -> None:

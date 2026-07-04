@@ -7,6 +7,7 @@ Key differences vs. infra-brain:
   - brain param in create_app() for test-time injection (stub brain, no real packages)
   - make_auth_middleware abstracted into src.core.auth
 """
+
 from __future__ import annotations
 
 import json

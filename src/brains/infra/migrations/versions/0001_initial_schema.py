@@ -5,16 +5,17 @@ Revises:
 Create Date: 2026-03-18
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -28,7 +29,9 @@ def upgrade() -> None:
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("confirmed_in", postgresql.ARRAY(sa.Text()), nullable=True),
         sa.Column("ecosystem", sa.Text(), nullable=False, server_default="python"),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("updated_by", sa.Text(), nullable=False, server_default="ai-capture"),
     )
 
@@ -40,7 +43,9 @@ def upgrade() -> None:
         sa.Column("rule", sa.Text(), nullable=False, unique=True),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("source_app", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint("severity IN ('BLOCK', 'WARN', 'INFO')", name="rules_severity_check"),
     )
 
@@ -53,7 +58,9 @@ def upgrade() -> None:
         sa.Column("ecosystem", sa.Text(), nullable=False),
         sa.Column("flavor", sa.Text(), nullable=True),
         sa.Column("confirmed_in", postgresql.ARRAY(sa.Text()), nullable=True),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
 
     op.create_table(
@@ -64,9 +71,13 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("tags", postgresql.ARRAY(sa.Text()), nullable=True),
         sa.Column("severity", sa.Text(), nullable=False, server_default="INFO"),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("source", sa.Text(), nullable=False, server_default="ai-capture"),
-        sa.CheckConstraint("severity IN ('CRITICAL', 'WARN', 'INFO')", name="lessons_severity_check"),
+        sa.CheckConstraint(
+            "severity IN ('CRITICAL', 'WARN', 'INFO')", name="lessons_severity_check"
+        ),
     )
 
 

@@ -1,4 +1,5 @@
 """Tests for the infra brain package: capabilities, tool registration, and registry guard."""
+
 import importlib
 
 import pytest
@@ -21,6 +22,7 @@ from src.core.registry import Capabilities, load_brain
 # ---------------------------------------------------------------------------
 # Capabilities
 # ---------------------------------------------------------------------------
+
 
 def test_infra_capabilities():
     brain = load_brain(BrainType.INFRA)
@@ -89,6 +91,7 @@ async def test_infra_register_is_idempotent_on_fresh_mcp():
 # No embeddings client constructed (Step E spec)
 # ---------------------------------------------------------------------------
 
+
 def test_infra_no_embeddings():
     """The infra brain declares embeddings=False — no embeddings dependency needed."""
     brain = load_brain(BrainType.INFRA)
@@ -98,6 +101,7 @@ def test_infra_no_embeddings():
 # ---------------------------------------------------------------------------
 # Registry guard: transitive import errors must propagate (Step D)
 # ---------------------------------------------------------------------------
+
 
 def test_transitive_import_error_propagates(monkeypatch):
     """A ModuleNotFoundError whose .name is NOT the brain module must propagate, not be masked."""
@@ -119,6 +123,7 @@ def test_transitive_import_error_propagates(monkeypatch):
 
 def test_true_unknown_brain_raises_value_error():
     """A truly unknown brain (module doesn't exist) raises ValueError, not ModuleNotFoundError."""
+
     class FakeBrainType:
         value = "does_not_exist_xyz"
 
@@ -178,10 +183,12 @@ def _infra_app(monkeypatch):
     monkeypatch.setenv("POSTGRES_DB", "x")
 
     import src.brains.infra as infra
-    monkeypatch.setattr(infra, "get_session_factory", lambda: (lambda: _FakeSession()))
+
+    monkeypatch.setattr(infra, "get_session_factory", lambda: lambda: _FakeSession())
     monkeypatch.setattr(infra, "RuleRepository", _FakeRepo)
 
     from src.core.app import create_app
+
     return create_app()
 
 
@@ -220,6 +227,7 @@ async def test_api_rules_returns_rules_with_key(monkeypatch):
 # actual queries run — mirrors tests/core/test_governance.py's async-SQLite
 # pattern.
 # ---------------------------------------------------------------------------
+
 
 def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData) -> sa.Table:
     """Clone an ORM table's columns onto a throwaway MetaData for the SQLite
@@ -332,9 +340,7 @@ async def _seed_lesson(factory, **overrides) -> int:
     )
     defaults.update(overrides)
     async with factory() as session:
-        result = await session.execute(
-            sa.insert(Lesson).values(**defaults).returning(Lesson.id)
-        )
+        result = await session.execute(sa.insert(Lesson).values(**defaults).returning(Lesson.id))
         new_id = result.scalar_one()
         await session.commit()
         return new_id
@@ -359,9 +365,7 @@ async def _seed_combo(factory, **overrides) -> int:
     )
     defaults.update(overrides)
     async with factory() as session:
-        result = await session.execute(
-            sa.insert(Combo).values(**defaults).returning(Combo.id)
-        )
+        result = await session.execute(sa.insert(Combo).values(**defaults).returning(Combo.id))
         new_id = result.scalar_one()
         await session.commit()
         return new_id
@@ -577,6 +581,7 @@ async def test_add_rule_overlap_conflict_is_advisory_and_approves_without_ack(
 # behind the approver key, same as approve/reject/deprecate.
 # ---------------------------------------------------------------------------
 
+
 async def test_restore_rule_denied_without_approver_key(infra_db, monkeypatch):
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
     seed_id = await _seed_rule(infra_db, rule="gated-restore-rule", status="deprecated")
@@ -643,6 +648,7 @@ async def test_propose_delete_restore_cannot_reach_approved_without_approver_key
 # unconditionally behind the approver key, same pattern as restore_rule.
 # ---------------------------------------------------------------------------
 
+
 async def test_delete_rule_denied_without_approver_key(infra_db, monkeypatch):
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
     seed_id = await _seed_rule(infra_db, rule="gated-delete-rule")
@@ -678,6 +684,7 @@ async def test_delete_rule_succeeds_with_approver_key(infra_db, monkeypatch):
 # rule requires the approver key; informational/recommended rules can still be
 # updated by a contributor key (no regression).
 # ---------------------------------------------------------------------------
+
 
 async def test_update_rule_on_required_rule_denied_without_approver_key(infra_db, monkeypatch):
     monkeypatch.setattr(rules_tools_module, "require_approver", lambda: False)
@@ -750,6 +757,7 @@ async def test_update_rule_on_non_required_rule_succeeds_without_approver_key(
 # the exact code path under test without touching that unrelated limitation.
 # ---------------------------------------------------------------------------
 
+
 class _FakeSeedSession:
     def __init__(self):
         self.added: list = []
@@ -803,7 +811,7 @@ async def test_seed_lands_rules_combos_lessons_as_approved(monkeypatch):
         async def upsert(self, data):
             pass  # versions are ungoverned; untouched by this fix
 
-    monkeypatch.setattr(infra_seed_module, "get_session_factory", lambda: (lambda: fake_session))
+    monkeypatch.setattr(infra_seed_module, "get_session_factory", lambda: lambda: fake_session)
     monkeypatch.setattr(infra_seed_module, "RuleRepository", _FakeRuleRepo)
     monkeypatch.setattr(infra_seed_module, "LessonRepository", _FakeLessonRepo)
     monkeypatch.setattr(infra_seed_module, "ComboRepository", _FakeComboRepo)

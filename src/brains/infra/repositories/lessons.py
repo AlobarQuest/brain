@@ -60,9 +60,5 @@ class LessonRepository:
 
     async def add_if_not_exists(self, data: dict) -> None:
         """Insert lesson, silently skip if the title already exists (race-safe)."""
-        stmt = (
-            insert(Lesson)
-            .values(**data)
-            .on_conflict_do_nothing(index_elements=["title"])
-        )
+        stmt = insert(Lesson).values(**data).on_conflict_do_nothing(index_elements=["title"])
         await self.session.execute(stmt)

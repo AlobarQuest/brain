@@ -5,6 +5,7 @@ Revises: 0003
 Create Date: 2026-07-03
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -86,16 +87,25 @@ def upgrade() -> None:
     )
     op.execute("UPDATE lessons SET applicability = jsonb_build_object('app', app)")
     op.execute(
-        "UPDATE combos SET applicability = "
-        "jsonb_build_object('name', name, 'ecosystem', ecosystem)"
+        "UPDATE combos SET applicability = jsonb_build_object('name', name, 'ecosystem', ecosystem)"
     )
 
 
 def downgrade() -> None:
     cols = (
-        "status", "authority", "proposed_by", "owner", "reviewed_by", "reviewed_at",
-        "applicability", "version", "conflict_note", "conflict_kind",
-        "conflict_acknowledged_at", "supersedes_id", "superseded_by_id",
+        "status",
+        "authority",
+        "proposed_by",
+        "owner",
+        "reviewed_by",
+        "reviewed_at",
+        "applicability",
+        "version",
+        "conflict_note",
+        "conflict_kind",
+        "conflict_acknowledged_at",
+        "supersedes_id",
+        "superseded_by_id",
     )
     for t in _TABLES:
         for c in ("status", "authority", "conflict_kind"):

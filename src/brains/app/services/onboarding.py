@@ -53,7 +53,12 @@ async def run_onboarding_job(
     errors: list[dict] = []
     new_chunk_ids: list[uuid.UUID] = []
 
-    logger.info("onboard_start: slug=%s blobs=%s replace=%s", slug, list(provided_blobs.keys()), replace_existing)
+    logger.info(
+        "onboard_start: slug=%s blobs=%s replace=%s",
+        slug,
+        list(provided_blobs.keys()),
+        replace_existing,
+    )
 
     try:
         async with get_session_factory()() as session:
@@ -72,8 +77,8 @@ async def run_onboarding_job(
             )
 
             # Phase A.2: write chunks sequentially on the single session.
-            for (blob_name, _content), res in zip(jobs, results):
-                if isinstance(res, Exception):
+            for (blob_name, _content), res in zip(jobs, results, strict=True):
+                if isinstance(res, BaseException):
                     errors.append({"blob": blob_name, "message": str(res)})
                     continue
                 knowledge_type = res["knowledge_type"]
@@ -123,11 +128,7 @@ async def run_onboarding_job(
         logger.error("onboard_failed: slug=%s error=%s", slug, exc)
         errors.append({"blob": "_global", "message": str(exc)})
 
-    final_status = (
-        "failed" if total_chunks == 0 and errors
-        else "partial" if errors
-        else "complete"
-    )
+    final_status = "failed" if total_chunks == 0 and errors else "partial" if errors else "complete"
 
     # Status update on a fresh session so it succeeds even if the work session is poisoned.
     async with get_session_factory()() as session:
@@ -139,7 +140,13 @@ async def run_onboarding_job(
         )
         await session.commit()
 
-    logger.info("onboard_complete: slug=%s status=%s chunks=%d errors=%d", slug, final_status, total_chunks, len(errors))
+    logger.info(
+        "onboard_complete: slug=%s status=%s chunks=%d errors=%d",
+        slug,
+        final_status,
+        total_chunks,
+        len(errors),
+    )
     return {
         "app_id": str(app_id),
         "app_slug": slug,

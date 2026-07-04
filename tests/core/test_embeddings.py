@@ -1,8 +1,8 @@
+import httpx
 import pytest
 import respx
-import httpx
 
-from src.core.config import Settings, BrainType
+from src.core.config import Settings
 from src.core.embeddings import EmbeddingsClient, get_embeddings_client
 
 BASE = dict(
@@ -45,6 +45,7 @@ async def test_embed_sends_correct_payload():
     await client.embed("hello")
     request = route.calls.last.request
     import json
+
     body = json.loads(request.content)
     assert body["model"] == "openai/text-embedding-3-small"
     assert body["input"] == "hello"
@@ -54,9 +55,7 @@ async def test_embed_sends_correct_payload():
 @respx.mock
 @pytest.mark.asyncio
 async def test_embed_raises_on_error():
-    respx.post(OPENROUTER_EMBED_URL).mock(
-        return_value=httpx.Response(500, text="Server Error")
-    )
+    respx.post(OPENROUTER_EMBED_URL).mock(return_value=httpx.Response(500, text="Server Error"))
     client = EmbeddingsClient(api_key="test-key")
     with pytest.raises(RuntimeError, match="OpenRouter request failed"):
         await client.embed("hello")

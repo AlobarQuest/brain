@@ -3,6 +3,7 @@
 embed() delegates to the shared core embeddings client (src.core.embeddings).
 extract_metadata() is app-local: same endpoint/model/prompt as the source app-brain.
 """
+
 import json
 
 import httpx
@@ -17,6 +18,24 @@ METADATA_SYSTEM_PROMPT = """Extract metadata from this knowledge chunk. Return J
 - "entities": array of named things mentioned: tools, services, people, systems (empty if none)
 - "tags": array of 1-3 broader category tags
 Only extract what's explicitly there."""
+DEFAULT_METADATA = {"topics": ["uncategorized"], "entities": [], "tags": []}
+
+
+def normalize_metadata(value: object) -> dict:
+    """Return the stable metadata shape downstream search and aggregation expect."""
+    if not isinstance(value, dict):
+        return dict(DEFAULT_METADATA)
+
+    normalized: dict[str, list[str]] = {}
+    for key, minimum, maximum in (("topics", 1, 3), ("entities", 0, 50), ("tags", 0, 3)):
+        items = value.get(key)
+        if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+            return dict(DEFAULT_METADATA)
+        cleaned = [item.strip() for item in items if item.strip()]
+        if len(cleaned) < minimum:
+            return dict(DEFAULT_METADATA)
+        normalized[key] = cleaned[:maximum]
+    return normalized
 
 
 async def embed(text: str) -> list[float]:
@@ -42,15 +61,18 @@ async def _post_openrouter(path: str, payload: dict) -> dict:
 
 
 async def extract_metadata(text: str) -> dict:
-    data = await _post_openrouter("/chat/completions", {
-        "model": "openai/gpt-4o-mini",
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": METADATA_SYSTEM_PROMPT},
-            {"role": "user", "content": text},
-        ],
-    })
+    data = await _post_openrouter(
+        "/chat/completions",
+        {
+            "model": "openai/gpt-4o-mini",
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": METADATA_SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+        },
+    )
     try:
-        return json.loads(data["choices"][0]["message"]["content"])
-    except (json.JSONDecodeError, KeyError, IndexError):
-        return {"topics": ["uncategorized"], "entities": [], "tags": []}
+        return normalize_metadata(json.loads(data["choices"][0]["message"]["content"]))
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+        return dict(DEFAULT_METADATA)

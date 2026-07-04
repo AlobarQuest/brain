@@ -1,4 +1,5 @@
 """Tests for the app brain package: capabilities, tool registration, and embeddings wiring."""
+
 import uuid
 
 import pytest
@@ -20,6 +21,7 @@ from src.core.registry import Capabilities, load_brain
 # ---------------------------------------------------------------------------
 # Capabilities
 # ---------------------------------------------------------------------------
+
 
 def test_app_capabilities():
     brain = load_brain(BrainType.APP)
@@ -77,14 +79,44 @@ async def test_app_register_is_idempotent_on_fresh_mcp():
     assert tools2 == EXPECTED_TOOLS
 
 
+async def test_onboard_app_requires_approver_before_any_write(monkeypatch):
+    monkeypatch.setattr(knowledge_tools_module, "require_approver", lambda: False)
+    brain = load_brain(BrainType.APP)
+    mcp = FastMCP("onboard-gate")
+    brain.register(mcp)
+
+    result = await mcp.call_tool(
+        "onboard_app",
+        {"slug": "blocked", "name": "Blocked", "readme": "content"},
+    )
+
+    assert result.structured_content == {
+        "error": "not_authorized",
+        "hint": "onboarding approved knowledge requires the approver key",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Embeddings wiring — behavior-verifying test (no real network)
 # ---------------------------------------------------------------------------
+
 
 def test_app_embeddings_capability_declared():
     """The app brain declares embeddings=True."""
     brain = load_brain(BrainType.APP)
     assert brain.capabilities.embeddings is True
+
+
+def test_app_metadata_normalizer_rejects_wrong_shaped_valid_json():
+    from src.brains.app.services.openrouter import DEFAULT_METADATA, normalize_metadata
+
+    assert normalize_metadata({"topics": "not-a-list", "entities": [], "tags": []}) == (
+        DEFAULT_METADATA
+    )
+    assert normalize_metadata({"topics": [], "entities": [], "tags": []}) == DEFAULT_METADATA
+    assert normalize_metadata(
+        {"topics": ["one"], "entities": ["service"], "tags": ["category"], "extra": "drop"}
+    ) == {"topics": ["one"], "entities": ["service"], "tags": ["category"]}
 
 
 async def test_capture_knowledge_uses_embed(monkeypatch):
@@ -182,11 +214,14 @@ async def test_capture_knowledge_uses_embed(monkeypatch):
     brain.register(mcp)
 
     content = "This is a test architecture knowledge chunk."
-    result = await mcp.call_tool("capture_knowledge", {
-        "app_slug": "test-app",
-        "knowledge_type": "architecture",
-        "content": content,
-    })
+    result = await mcp.call_tool(
+        "capture_knowledge",
+        {
+            "app_slug": "test-app",
+            "knowledge_type": "architecture",
+            "content": content,
+        },
+    )
 
     # embed must have been called with the chunk content
     assert embed_calls, "embed() was never called"
@@ -204,6 +239,7 @@ async def test_capture_knowledge_uses_embed(monkeypatch):
 # ---------------------------------------------------------------------------
 # startup() hook — reconciles stale-running onboards
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_startup_calls_fail_stale_running(monkeypatch):
@@ -240,6 +276,7 @@ async def test_startup_calls_fail_stale_running(monkeypatch):
     monkeypatch.setattr(apps_repo_module, "AppRepository", _FakeAppRepo)
 
     import src.brains.app as app_brain_module
+
     await app_brain_module.startup()
 
     assert "fail_stale_running" in calls, "startup() did not call fail_stale_running()"
@@ -254,6 +291,7 @@ async def test_startup_calls_fail_stale_running(monkeypatch):
 # AppKnowledge is UUID-PK (unlike infra/code's Integer PKs) and carries a pgvector
 # `embedding` column plus a JSONB `metadata` column, both Postgres-only.
 # ---------------------------------------------------------------------------
+
 
 def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData) -> sa.Table:
     """Clone an ORM table's columns onto a throwaway MetaData for the SQLite test DDL,
@@ -281,7 +319,10 @@ def _sqlite_ddl_table(name: str, orm_table: sa.FromClause, metadata: sa.MetaData
             server_default = None
         cols.append(
             sa.Column(
-                c.name, col_type, primary_key=c.primary_key, nullable=c.nullable,
+                c.name,
+                col_type,
+                primary_key=c.primary_key,
+                nullable=c.nullable,
                 server_default=server_default,
             )
         )
@@ -426,10 +467,16 @@ async def test_search_knowledge_defaults_and_threads_governance_filters(monkeypa
             calls.append({"method": "semantic", **kwargs})
             return [
                 {
-                    "id": "s1", "app_slug": "widget", "knowledge_type": "architecture",
-                    "content": "semantic hit", "metadata": {}, "similarity": 0.9,
-                    "status": "approved", "authority": "informational",
-                    "applicability": {}, "conflict": None,
+                    "id": "s1",
+                    "app_slug": "widget",
+                    "knowledge_type": "architecture",
+                    "content": "semantic hit",
+                    "metadata": {},
+                    "similarity": 0.9,
+                    "status": "approved",
+                    "authority": "informational",
+                    "applicability": {},
+                    "conflict": None,
                 }
             ]
 
@@ -443,7 +490,7 @@ async def test_search_knowledge_defaults_and_threads_governance_filters(monkeypa
     monkeypatch.setattr(knowledge_tools_module, "KnowledgeRepository", _FakeRepo)
     monkeypatch.setattr(knowledge_tools_module, "embed", fake_embed)
     monkeypatch.setattr(
-        knowledge_tools_module, "get_session_factory", lambda: (lambda: _NullSession())
+        knowledge_tools_module, "get_session_factory", lambda: lambda: _NullSession()
     )
 
     mcp = _app_mcp()
@@ -482,9 +529,7 @@ async def test_list_knowledge_include_proposed_and_min_authority(app_db):
     required_id = await _seed_knowledge(
         app_db, app_slug="listy2", status="approved", authority="required"
     )
-    await _seed_knowledge(
-        app_db, app_slug="listy2", status="approved", authority="informational"
-    )
+    await _seed_knowledge(app_db, app_slug="listy2", status="approved", authority="informational")
 
     mcp = _app_mcp()
     default = await mcp.call_tool("list_knowledge", {"app_slug": "listy2"})
@@ -611,6 +656,7 @@ async def test_delete_knowledge_still_yields_deprecated_status(app_db, monkeypat
 # capture must stay reachable by a contributor-tier key).
 # ---------------------------------------------------------------------------
 
+
 async def test_delete_knowledge_denied_without_approver_key(app_db, monkeypatch):
     """delete_knowledge is a destructive call and must require the approver key — a
     contributor-key caller must be refused, and the target row left completely untouched
@@ -675,13 +721,17 @@ async def test_capture_knowledge_supersede_denied_without_approver_key(app_db, m
         assert old_row.is_active is True
 
         rows = (
-            await session.execute(
-                sa.select(AppKnowledge).where(
-                    AppKnowledge.app_slug == "widget",
-                    AppKnowledge.knowledge_type == "deployment",
+            (
+                await session.execute(
+                    sa.select(AppKnowledge).where(
+                        AppKnowledge.app_slug == "widget",
+                        AppKnowledge.knowledge_type == "deployment",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1  # only the seeded old row exists — no superseding row created
 
 
@@ -700,19 +750,28 @@ async def test_capture_knowledge_supersede_denied_without_approver_key(app_db, m
 # chunks deprecated+hidden — no knowledge blackout.
 # ---------------------------------------------------------------------------
 
+
 async def test_deactivate_onboard_chunks_sets_status_deprecated(app_db):
     """FIX 4: deactivate_onboard_chunks must deprecate governance status, not just
     flip is_active — an old onboard chunk must stop surfacing as 'approved'."""
     from src.brains.app.repositories.knowledge import KnowledgeRepository
 
     onboard_id = await _seed_knowledge(
-        app_db, app_slug="widget", knowledge_type="architecture",
-        source="onboard", status="approved", is_active=True,
+        app_db,
+        app_slug="widget",
+        knowledge_type="architecture",
+        source="onboard",
+        status="approved",
+        is_active=True,
     )
     # a manual/ai-capture chunk for the same app must be left untouched
     manual_id = await _seed_knowledge(
-        app_db, app_slug="widget", knowledge_type="architecture",
-        source="ai-capture", status="approved", is_active=True,
+        app_db,
+        app_slug="widget",
+        knowledge_type="architecture",
+        source="ai-capture",
+        status="approved",
+        is_active=True,
         content_hash="manual-hash",
     )
 
@@ -738,8 +797,12 @@ async def test_deactivate_onboard_chunks_excludes_given_ids(app_db):
     from src.brains.app.repositories.knowledge import KnowledgeRepository
 
     keep_id = await _seed_knowledge(
-        app_db, app_slug="widget", knowledge_type="architecture",
-        source="onboard", status="approved", is_active=True,
+        app_db,
+        app_slug="widget",
+        knowledge_type="architecture",
+        source="onboard",
+        status="approved",
+        is_active=True,
     )
 
     async with app_db() as session:
@@ -807,8 +870,14 @@ async def test_onboarding_chunk_lands_approved(app_db, onboarding_env):
 
     async with app_db() as session:
         rows = (
-            await session.execute(sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget"))
-        ).scalars().all()
+            (
+                await session.execute(
+                    sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget")
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert len(rows) == 1
     row = rows[0]
     assert row.status == "approved"
@@ -842,8 +911,14 @@ async def test_reonboard_replace_existing_no_blackout(app_db, onboarding_env):
 
     async with app_db() as session:
         rows = (
-            await session.execute(sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget"))
-        ).scalars().all()
+            (
+                await session.execute(
+                    sa.select(AppKnowledge).where(AppKnowledge.app_slug == "widget")
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert len(rows) == 2
     by_active = {row.is_active: row for row in rows}
     old_row = by_active[False]

@@ -1,6 +1,7 @@
 """Integration test for FastAPI+FastMCP host and /api/health endpoint."""
-import pytest
+
 import httpx
+import pytest
 
 from src.core.registry import Capabilities
 

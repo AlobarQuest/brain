@@ -52,11 +52,7 @@ class RuleRepository:
 
     async def add_if_not_exists(self, data: dict) -> None:
         """Insert rule, silently skip if the rule text already exists (race-safe)."""
-        stmt = (
-            insert(Rule)
-            .values(**data)
-            .on_conflict_do_nothing(index_elements=["rule"])
-        )
+        stmt = insert(Rule).values(**data).on_conflict_do_nothing(index_elements=["rule"])
         await self.session.execute(stmt)
 
     _UPDATABLE_FIELDS = {"severity", "category", "reason", "source_app", "check"}

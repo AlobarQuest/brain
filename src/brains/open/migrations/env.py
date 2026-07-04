@@ -5,8 +5,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from src.core.db import Base
 from src.brains.open import models  # noqa: F401 — ensure models are registered with Base.metadata
+from src.core.db import Base
 
 config = context.config
 
@@ -23,6 +23,7 @@ if not database_url:
         database_url = fallback
 if not database_url:
     from src.core.config import get_settings
+
     database_url = get_settings().effective_database_url()
 
 

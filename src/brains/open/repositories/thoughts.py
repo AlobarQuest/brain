@@ -1,6 +1,4 @@
-import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,16 +69,12 @@ class ThoughtRepository:
     async def list_thoughts(
         self,
         limit: int = 10,
-        type_filter: Optional[str] = None,
-        topic_filter: Optional[str] = None,
-        person_filter: Optional[str] = None,
-        days: Optional[int] = None,
+        type_filter: str | None = None,
+        topic_filter: str | None = None,
+        person_filter: str | None = None,
+        days: int | None = None,
     ) -> list[Thought]:
-        stmt = (
-            select(Thought)
-            .order_by(Thought.created_at.desc())
-            .limit(limit)
-        )
+        stmt = select(Thought).order_by(Thought.created_at.desc()).limit(limit)
         if type_filter:
             stmt = stmt.where(Thought.metadata_.contains({"type": type_filter}))
         if topic_filter:
@@ -95,14 +89,11 @@ class ThoughtRepository:
 
     async def stats(self) -> dict:
         """Aggregate stats from all thoughts. In-app aggregation, acceptable at ~50 rows."""
-        count_result = await self.session.execute(
-            select(func.count()).select_from(Thought)
-        )
+        count_result = await self.session.execute(select(func.count()).select_from(Thought))
         total = count_result.scalar()
 
         result = await self.session.execute(
-            select(Thought.metadata_, Thought.created_at)
-            .order_by(Thought.created_at.desc())
+            select(Thought.metadata_, Thought.created_at).order_by(Thought.created_at.desc())
         )
         rows = result.all()
 

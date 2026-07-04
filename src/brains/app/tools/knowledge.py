@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional
 
 from fastmcp import FastMCP
 
@@ -37,8 +36,8 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def search_knowledge(
         query: str,
-        app_slug: Optional[str] = None,
-        knowledge_type: Optional[str] = None,
+        app_slug: str | None = None,
+        knowledge_type: str | None = None,
         mode: str = "hybrid",
         limit: int = 10,
         threshold: float = 0.5,
@@ -99,7 +98,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def list_knowledge(
         app_slug: str,
-        knowledge_type: Optional[str] = None,
+        knowledge_type: str | None = None,
         limit: int = 20,
         offset: int = 0,
         active_only: bool = True,
@@ -130,7 +129,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         knowledge_type: str,
         content: str,
         source: str = "mcp",
-        supersedes_id: Optional[str] = None,
+        supersedes_id: str | None = None,
         proposed_by: str | None = None,
         auto_approve: bool = False,
     ) -> dict:
@@ -141,7 +140,9 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         Passing supersedes_id (superseding an existing chunk) is a de-escalation path and
         requires the approver key — a plain capture with no supersedes_id is unaffected."""
         if knowledge_type not in KNOWLEDGE_TYPES:
-            return {"error": f"invalid_params: knowledge_type must be one of {', '.join(KNOWLEDGE_TYPES)}"}
+            return {
+                "error": f"invalid_params: knowledge_type must be one of {', '.join(KNOWLEDGE_TYPES)}"
+            }
         if source not in SOURCE_VALUES:
             return {"error": f"invalid_params: source must be one of {', '.join(SOURCE_VALUES)}"}
         if supersedes_id is not None and not require_approver():
@@ -161,7 +162,11 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
 
             existing = await knowledge_repo.find_duplicate(app_slug, knowledge_type, content_hash)
             if existing:
-                return {"id": str(existing.id), "duplicate": True, "metadata_summary": existing.metadata_}
+                return {
+                    "id": str(existing.id),
+                    "duplicate": True,
+                    "metadata_summary": existing.metadata_,
+                }
 
             embedding, metadata = await asyncio.gather(
                 embed(content),
@@ -227,19 +232,28 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
     async def onboard_app(
         slug: str,
         name: str,
-        readme: Optional[str] = None,
-        charter: Optional[str] = None,
-        architecture_notes: Optional[str] = None,
-        deployment_notes: Optional[str] = None,
+        readme: str | None = None,
+        charter: str | None = None,
+        architecture_notes: str | None = None,
+        deployment_notes: str | None = None,
         replace_existing: bool = False,
-        description: Optional[str] = None,
-        tech_stack: Optional[dict] = None,
-        repo_path: Optional[str] = None,
-        deployment_url: Optional[str] = None,
-        status: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        description: str | None = None,
+        tech_stack: dict | None = None,
+        repo_path: str | None = None,
+        deployment_url: str | None = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict:
-        """Register an app and seed knowledge from markdown blobs (readme, charter, architecture_notes, deployment_notes). Starts a background job that chunks, classifies, embeds, and stores each piece; returns immediately with onboarding_status='running'. Poll onboard_status(slug) for completion."""
+        """Register an app and seed approved knowledge from markdown blobs.
+
+        APPROVER KEY ONLY: onboarding creates approved records directly and
+        replace_existing can deprecate existing approved records.
+        """
+        if not require_approver():
+            return {
+                "error": "not_authorized",
+                "hint": "onboarding approved knowledge requires the approver key",
+            }
         blobs = {
             "readme": readme,
             "charter": charter,
@@ -253,27 +267,33 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             return {"error": f"invalid_params: status must be one of {', '.join(APP_STATUSES)}"}
 
         # Blob size limits
-        MAX_BLOB_SIZE = 100 * 1024   # 100KB per blob
+        MAX_BLOB_SIZE = 100 * 1024  # 100KB per blob
         MAX_TOTAL_SIZE = 400 * 1024  # 400KB total
         MAX_CHUNKS_PER_ONBOARD = 200
 
         total_size = sum(len(v.encode()) for v in provided_blobs.values())
         if total_size > MAX_TOTAL_SIZE:
-            return {"error": f"invalid_params: total blob size {total_size} exceeds {MAX_TOTAL_SIZE} bytes"}
+            return {
+                "error": f"invalid_params: total blob size {total_size} exceeds {MAX_TOTAL_SIZE} bytes"
+            }
         for k, v in provided_blobs.items():
             if len(v.encode()) > MAX_BLOB_SIZE:
                 return {"error": f"invalid_params: blob '{k}' exceeds {MAX_BLOB_SIZE} bytes"}
 
         total_pending = sum(len(chunk_text(v)) for v in provided_blobs.values())
         if total_pending > MAX_CHUNKS_PER_ONBOARD:
-            return {"error": f"invalid_params: onboarding would produce {total_pending} chunks, max is {MAX_CHUNKS_PER_ONBOARD}"}
+            return {
+                "error": f"invalid_params: onboarding would produce {total_pending} chunks, max is {MAX_CHUNKS_PER_ONBOARD}"
+            }
 
         async with get_session_factory()() as session:
             app_repo = AppRepository(session)
 
             existing = await app_repo.get_app(slug)
             if existing and not replace_existing:
-                return {"error": "conflict: app already exists, pass replace_existing=true to update"}
+                return {
+                    "error": "conflict: app already exists, pass replace_existing=true to update"
+                }
 
             app_fields: dict = {}
             if description is not None:
@@ -290,11 +310,16 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 app_fields["tags"] = tags
 
             if existing:
-                await app_repo.update_app(slug, name=name, onboarding_status="running", **app_fields)
+                await app_repo.update_app(
+                    slug, name=name, onboarding_status="running", **app_fields
+                )
                 app_id = existing.id
             else:
                 app = await app_repo.create_app(
-                    slug=slug, name=name, onboarding_status="running", **app_fields,
+                    slug=slug,
+                    name=name,
+                    onboarding_status="running",
+                    **app_fields,
                 )
                 app_id = app.id
 
@@ -311,7 +336,12 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
 
-        logger.info("onboard_scheduled: slug=%s blobs=%s replace=%s", slug, list(provided_blobs.keys()), replace_existing)
+        logger.info(
+            "onboard_scheduled: slug=%s blobs=%s replace=%s",
+            slug,
+            list(provided_blobs.keys()),
+            replace_existing,
+        )
         return {
             "app_id": str(app_id),
             "app_slug": slug,
@@ -329,6 +359,8 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             return {
                 "app_slug": slug,
                 "onboarding_status": app.onboarding_status,
-                "last_onboarded_at": app.last_onboarded_at.isoformat() if app.last_onboarded_at else None,
+                "last_onboarded_at": app.last_onboarded_at.isoformat()
+                if app.last_onboarded_at
+                else None,
                 "last_onboarding_error": app.last_onboarding_error,
             }

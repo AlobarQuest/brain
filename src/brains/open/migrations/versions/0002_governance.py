@@ -14,6 +14,7 @@ Revises: 0001
 Create Date: 2026-07-03
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -60,9 +61,7 @@ def upgrade() -> None:
         # Mirrors app_knowledge's 0004 precedent: the ORM model declares these as UUID
         # self-FKs (for join/typing purposes), but no explicit DB-level FK constraint is
         # added — consistent with how app_knowledge's superseded_by_id was added.
-        op.add_column(
-            t, sa.Column("supersedes_id", postgresql.UUID(as_uuid=True), nullable=True)
-        )
+        op.add_column(t, sa.Column("supersedes_id", postgresql.UUID(as_uuid=True), nullable=True))
         op.add_column(
             t, sa.Column("superseded_by_id", postgresql.UUID(as_uuid=True), nullable=True)
         )
@@ -85,9 +84,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     cols = (
-        "status", "authority", "proposed_by", "owner", "reviewed_by", "reviewed_at",
-        "applicability", "version", "conflict_note", "conflict_kind",
-        "conflict_acknowledged_at", "supersedes_id", "superseded_by_id",
+        "status",
+        "authority",
+        "proposed_by",
+        "owner",
+        "reviewed_by",
+        "reviewed_at",
+        "applicability",
+        "version",
+        "conflict_note",
+        "conflict_kind",
+        "conflict_acknowledged_at",
+        "supersedes_id",
+        "superseded_by_id",
     )
     for t in _TABLES:
         for c in ("status", "authority", "conflict_kind"):

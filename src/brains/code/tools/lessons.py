@@ -26,8 +26,11 @@ def register_lesson_tools(mcp: FastMCP) -> None:
                 if await RoadRepository(session).get_by_slug(road_slug) is None:
                     return {"error": "unknown_road", "road_slug": road_slug}
             data = {
-                "title": title, "content": content, "road_slug": road_slug,
-                "tags": tags or [], "source_app": source_app,
+                "title": title,
+                "content": content,
+                "road_slug": road_slug,
+                "tags": tags or [],
+                "source_app": source_app,
             }
             data.update(
                 proposed_defaults(

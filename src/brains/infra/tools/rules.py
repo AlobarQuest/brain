@@ -138,7 +138,10 @@ def register_rule_tools(mcp: FastMCP) -> None:
             if v is not None
         }
         if not fields:
-            return {"error": "no_fields", "hint": "Provide at least one of: severity, category, reason, source_app, check"}
+            return {
+                "error": "no_fields",
+                "hint": "Provide at least one of: severity, category, reason, source_app, check",
+            }
         async with get_session_factory()() as session:
             repo = RuleRepository(session)
             existing = await repo.get_by_id(id)
@@ -153,7 +156,12 @@ def register_rule_tools(mcp: FastMCP) -> None:
             if updated is None:
                 return {"error": "not_found", "id": id}
             await session.commit()
-            return {"updated": True, "id": updated.id, "severity": updated.severity, "category": updated.category}
+            return {
+                "updated": True,
+                "id": updated.id,
+                "severity": updated.severity,
+                "category": updated.category,
+            }
 
     @mcp.tool()
     async def delete_rule(id: int) -> dict:

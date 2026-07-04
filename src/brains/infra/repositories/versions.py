@@ -10,9 +10,7 @@ class VersionRepository:
 
     async def get_by_package(self, package: str) -> Version | None:
         """Get a version record by package name."""
-        result = await self.session.execute(
-            select(Version).where(Version.package == package)
-        )
+        result = await self.session.execute(select(Version).where(Version.package == package))
         return result.scalar_one_or_none()
 
     async def list_all(self, ecosystem: str | None = None, limit: int = 100) -> list[Version]:
