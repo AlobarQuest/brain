@@ -156,12 +156,29 @@ class _FakeRule:
     conflict_kind = None
 
 
+class _FakeLesson:
+    id = 9
+    app = "orchestrator"
+    title = "Use bounded observations"
+    content = "Promote only bounded facts through review."
+    tags = ["ws62"]
+    severity = "INFO"
+    source = None
+    status = "proposed"
+    authority = "recommended"
+    applicability = {"app": "orchestrator"}
+    conflict_kind = None
+
+
 class _FakeSession:
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *a):
         return False
+
+    async def commit(self):
+        return None
 
 
 class _FakeRepo:
@@ -176,6 +193,7 @@ def _infra_app(monkeypatch):
     """Build the real infra app with the DB layer mocked out."""
     monkeypatch.setenv("BRAIN_TYPE", "infra")
     monkeypatch.setenv("MCP_ACCESS_KEY", "a" * 64)
+    monkeypatch.setenv("CONTRIBUTOR_KEY", "b" * 64)
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("POSTGRES_HOST", "x")
     monkeypatch.setenv("POSTGRES_USER", "x")
@@ -196,6 +214,8 @@ async def test_api_rules_route_registered(monkeypatch):
     app = _infra_app(monkeypatch)
     paths = {getattr(r, "path", None) for r in app.routes}
     assert "/api/rules" in paths
+    assert "/api/proposals/lessons" in paths
+    assert "/api/proposals/rules" in paths
 
 
 async def test_api_rules_requires_key(monkeypatch):
@@ -218,6 +238,38 @@ async def test_api_rules_returns_rules_with_key(monkeypatch):
     assert r["id"] == 7 and r["severity"] == "BLOCK"
     # created_at is the REST-only field (the MCP get_rules tool omits it).
     assert r["created_at"] == "2026-01-02T03:04:05"
+
+
+async def test_api_proposes_lesson_with_contributor_key(monkeypatch):
+    app = _infra_app(monkeypatch)
+
+    import src.brains.infra as infra
+
+    async def fake_propose_lesson(session, **kwargs):
+        assert kwargs["authority"] == "recommended"
+        return _FakeLesson(), None
+
+    monkeypatch.setattr(infra, "propose_lesson", fake_propose_lesson)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.post(
+            "/api/proposals/lessons",
+            headers={"x-brain-key": "b" * 64},
+            json={
+                "title": "Use bounded observations",
+                "content": "Promote only bounded facts through review.",
+                "app": "orchestrator",
+                "tags": ["ws62"],
+                "severity": "INFO",
+                "proposed_by": "devon",
+                "authority": "recommended",
+            },
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["lesson"]["status"] == "proposed"
+    assert body["lesson"]["authority"] == "recommended"
 
 
 # ---------------------------------------------------------------------------

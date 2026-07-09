@@ -4,7 +4,10 @@ The 4th brain (BRAIN_TYPE=code), modeled directly on src/brains/infra. No pgvect
 for v1 (embeddings=False): structured roads/rules + keyword search.
 """
 
+from typing import Any
+
 from fastapi import HTTPException
+from pydantic import BaseModel, Field
 
 from src.brains.code.models import Exemplar, Lesson, Rule
 from src.brains.code.repositories.exemplars import ExemplarRepository
@@ -12,6 +15,7 @@ from src.brains.code.repositories.lessons import LessonRepository
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
 from src.brains.code.repositories.search import SearchRepository
+from src.brains.code.services.proposals import propose_lesson, propose_rule
 from src.brains.code.tools.exemplars import register_exemplar_tools
 from src.brains.code.tools.lessons import register_lesson_tools
 from src.brains.code.tools.roads import register_road_tools
@@ -45,6 +49,30 @@ def _rule_rest(r) -> dict:
     d = rule_dict(r)
     d["created_at"] = r.created_at.isoformat()
     return d
+
+
+class CodeLessonProposal(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=4000)
+    road_slug: str | None = Field(default=None, max_length=120)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    source_app: str | None = Field(default=None, max_length=120)
+    proposed_by: str | None = Field(default=None, max_length=120)
+    authority: str = Field(default="informational")
+
+
+class CodeRuleProposal(BaseModel):
+    road_slug: str = Field(min_length=1, max_length=120)
+    severity: str = Field(min_length=1, max_length=20)
+    category: str = Field(min_length=1, max_length=80)
+    rule: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
+    source: str | None = Field(default=None, max_length=200)
+    check: dict[str, Any] | None = None
+    good_example: str | None = Field(default=None, max_length=2000)
+    bad_example: str | None = Field(default=None, max_length=2000)
+    proposed_by: str | None = Field(default=None, max_length=120)
+    authority: str = Field(default="informational")
 
 
 def register_routes(app) -> None:
@@ -110,3 +138,21 @@ def register_routes(app) -> None:
                 "rules": [_rule_rest(r) for r in results["rules"]],
                 "lessons": [lesson_dict(lesson) for lesson in results["lessons"]],
             }
+
+    @app.post("/api/proposals/lessons", status_code=201)
+    async def propose_lesson_api(body: CodeLessonProposal):
+        async with get_session_factory()() as session:
+            lesson, error = await propose_lesson(session, **body.model_dump())
+            if error is not None:
+                raise HTTPException(status_code=400, detail=error)
+            await session.commit()
+            return {"created": True, "lesson": lesson_dict(lesson)}
+
+    @app.post("/api/proposals/rules", status_code=201)
+    async def propose_rule_api(body: CodeRuleProposal):
+        async with get_session_factory()() as session:
+            rule, error = await propose_rule(session, **body.model_dump())
+            if error is not None:
+                raise HTTPException(status_code=400, detail=error)
+            await session.commit()
+            return {"created": True, "rule": rule_dict(rule)}
