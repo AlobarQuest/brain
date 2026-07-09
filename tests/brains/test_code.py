@@ -106,6 +106,9 @@ class _FakeSession:
     async def __aexit__(self, *a):
         return False
 
+    async def commit(self):
+        return None
+
 
 class _FakeRule:
     id = 1
@@ -143,6 +146,19 @@ class _FakeRoad:
     updated_at = datetime.datetime(2026, 1, 2, 3, 4, 5)
 
 
+class _FakeLesson:
+    id = 2
+    road_slug = "meta-discipline"
+    title = "Use bounded observations"
+    content = "Promote only bounded facts through review."
+    tags = ["ws62"]
+    source_app = "orchestrator"
+    status = "proposed"
+    authority = "recommended"
+    applicability = {"road_slug": "meta-discipline"}
+    conflict_kind = None
+
+
 class _FakeRuleRepo:
     def __init__(self, session):
         pass
@@ -163,6 +179,7 @@ def _code_app(monkeypatch):
     """Build the real code app with the DB layer mocked out."""
     monkeypatch.setenv("BRAIN_TYPE", "code")
     monkeypatch.setenv("MCP_ACCESS_KEY", "a" * 64)
+    monkeypatch.setenv("CONTRIBUTOR_KEY", "b" * 64)
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
     monkeypatch.setenv("POSTGRES_HOST", "x")
     monkeypatch.setenv("POSTGRES_USER", "x")
@@ -185,6 +202,8 @@ async def test_rest_routes_registered(monkeypatch):
     paths = {getattr(r, "path", None) for r in app.routes}
     assert "/api/rules" in paths
     assert "/api/roads" in paths
+    assert "/api/proposals/lessons" in paths
+    assert "/api/proposals/rules" in paths
 
 
 async def test_api_rules_requires_key(monkeypatch):
@@ -220,6 +239,38 @@ async def test_api_roads_returns_roads_with_key(monkeypatch):
     assert len(body["roads"]) == 1
     assert body["roads"][0]["slug"] == "error-logging"
     assert body["roads"][0]["status"] == "unpaved"
+
+
+async def test_api_proposes_lesson_with_contributor_key(monkeypatch):
+    app = _code_app(monkeypatch)
+
+    import src.brains.code as code
+
+    async def fake_propose_lesson(session, **kwargs):
+        assert kwargs["authority"] == "recommended"
+        return _FakeLesson(), None
+
+    monkeypatch.setattr(code, "propose_lesson", fake_propose_lesson)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        resp = await c.post(
+            "/api/proposals/lessons",
+            headers={"x-brain-key": "b" * 64},
+            json={
+                "title": "Use bounded observations",
+                "content": "Promote only bounded facts through review.",
+                "road_slug": "meta-discipline",
+                "tags": ["ws62"],
+                "source_app": "orchestrator",
+                "proposed_by": "devon",
+                "authority": "recommended",
+            },
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["lesson"]["status"] == "proposed"
+    assert body["lesson"]["authority"] == "recommended"
 
 
 # ---------------------------------------------------------------------------
