@@ -4,11 +4,7 @@ from src.brains.app.tools.knowledge import register_knowledge_tools
 from src.core.governance import register_governance_tools
 from src.core.registry import Capabilities
 
-capabilities = Capabilities(
-    embeddings=True,
-    auth_exact=("/api/health", "/register"),
-    auth_prefixes=("/.well-known/",),
-)
+capabilities = Capabilities(embeddings=True, auth_exact=("/api/health",), auth_prefixes=())
 
 
 def register(mcp) -> None:

@@ -26,9 +26,12 @@ from src.core.registry import Capabilities, load_brain
 def test_app_capabilities():
     brain = load_brain(BrainType.APP)
     assert brain.capabilities.embeddings is True
-    assert "/register" in brain.capabilities.auth_exact
-    assert "/api/health" in brain.capabilities.auth_exact
-    assert "/.well-known/" in brain.capabilities.auth_prefixes
+    # app-brain gates every path except /api/health with the access-key, identical to the
+    # other brains. The legacy /register + /.well-known/ allowlist entries (OAuth-placeholder
+    # carryover from the pre-unification app-brain) were removed: we settled on shared-secret
+    # M2M auth, not OAuth, so those paths must not bypass the access-key gate.
+    assert brain.capabilities.auth_exact == ("/api/health",)
+    assert brain.capabilities.auth_prefixes == ()
 
 
 def test_app_capabilities_is_correct_type():
