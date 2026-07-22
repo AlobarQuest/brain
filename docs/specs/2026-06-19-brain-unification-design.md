@@ -121,8 +121,14 @@ for local dev (api + a pgvector Postgres) so contributors can run any `BRAIN_TYP
 - **Seed:** after migrations, `start.sh` runs the brain's `seed.py --skip-existing` if
   present (only Infra Brain has one).
 - **Auth allowlist (per-brain):** shared `auth.py` reads the active brain's allowlist.
-  `infra`/`open` allow only `/api/health`; `app` additionally allows `/register` +
-  `/.well-known/*` (intentional unauthenticated access — preserved unchanged).
+  All brains (`infra`/`open`/`code`/`app`) allow only `/api/health`; every other path
+  requires the access-key (`x-brain-key` header or `?key=`). **Superseded 2026-07-22:**
+  `app` originally also allowlisted `/register` + `/.well-known/*` as unauthenticated
+  OAuth-placeholder carryover. Those were removed — the brains are machine-to-machine and
+  authenticate via shared secret, not OAuth, so no OAuth discovery/registration surface is
+  needed and those paths must not bypass the gate. (Context: claude.ai's web connector now
+  force-attempts OAuth DCR on any 401 MCP server, an Anthropic-side change unrelated to the
+  brains; the fix is not to add OAuth but to keep the shared-secret model consistent.)
 - **Config:** shared `Settings` (port=8000, `MCP_ACCESS_KEY`, DB creds, log level) +
   per-brain extras (`OPENROUTER_API_KEY` required for `app`/`open`). `MCP_ACCESS_KEY`
   validated as 64-char hex.
