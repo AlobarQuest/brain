@@ -1,3 +1,4 @@
+# code-standards:managed:start — everything down to :end is replaced by `code-standards sync`.
 # code-standards GitHub Actions workflow (vendored).
 # Destination: .github/workflows/quality.yml
 # Edit upstream and `code-standards sync`.
@@ -132,3 +133,4 @@ jobs:
         # `[dependency-groups]`, the installer above will not put them in place
         # and this step now fails loudly instead of going green having run nothing.
         run: make check
+# code-standards:managed:end — content OUTSIDE these markers is yours and is preserved. Delete both markers to own the whole file: sync then writes nothing here and says so every run.

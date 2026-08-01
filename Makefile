@@ -1,3 +1,4 @@
+# code-standards:managed:start — everything down to :end is replaced by `code-standards sync`.
 # code-standards Makefile (vendored). Edit upstream and `code-standards sync`.
 # check: full-repo lint/type/test pass for humans and CI.
 #        diff-scoping is the hook's job — this runs everything.
@@ -79,10 +80,12 @@ fix:
 	@if [ -f pyproject.toml ]; then $(call need,ruff,install it with: uv sync); ruff check --fix .; fi
 	@if [ -f pyproject.toml ]; then $(call need,ruff,install it with: uv sync); ruff format .; fi
 	@if [ -f .prettierrc ]; then $(call need,prettier,install it with: npm ci); prettier --write .; fi
+# code-standards:managed:end — content OUTSIDE these markers is yours and is preserved. Delete both markers to own the whole file: sync then writes nothing here and says so every run.
 
 # ---------------------------------------------------------------------------
-# Repo-local targets (NOT part of the code-standards template; `sync` overwrites
-# everything above this line and will drop these unless they are re-appended).
+# Repo-local targets. They sit OUTSIDE the managed block above, so
+# `code-standards sync` preserves them (ADR-0008) — they no longer have to be
+# re-appended by hand after every sync.
 # brain pins its dev tools in requirements-dev.txt, not a uv dependency-group.
 .PHONY: install test
 
