@@ -113,8 +113,16 @@ class Repository(Base):
 
 
 class App(Base):
+    """A deployed application. An app is a DEPLOYMENT of a repository, joined to
+    it by the canonical form of `github_repo`.
+
+    The default-branch landing fact is deliberately NOT here: it belongs to the
+    repository (see Repository), which one app may share with three siblings and
+    which may exist with no app at all. Migration 0007 drops the columns 0005 put
+    here; until then they are present in the database and read by nothing.
+    """
+
     __tablename__ = "apps"
-    __table_args__ = landing_check_constraints("apps")
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
@@ -129,17 +137,6 @@ class App(Base):
     environments: Mapped[list[dict]] = mapped_column(
         JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
     )
-    # Deliberately NOT a key inside environments[]: that array is
-    # Coolify-authoritative and is overwritten wholesale by
-    # scripts/sync_deployment_from_coolify.py. The trigger this answers lives in
-    # the source repository (or in a git-provider webhook) and points AT the
-    # deploy target, so the deploy target structurally cannot see it — a value
-    # stored there would be erased by the very blindness it exists to fix.
-    default_branch_landing: Mapped[str | None] = mapped_column(Text, nullable=True)
-    default_branch_landing_determined_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    default_branch_landing_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=sa.text("'active'"))
     tags: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=sa.text("'{}'::text[]")

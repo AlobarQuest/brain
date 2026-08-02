@@ -129,16 +129,19 @@ def _check_names(model) -> set[str]:
     return {c.name for c in model.__table__.constraints if hasattr(c, "sqltext")}
 
 
-@pytest.mark.parametrize(
-    "model,table",
-    [(App, "apps"), (Repository, "repositories")],
-)
-def test_both_tables_carry_the_landing_checks(model, table):
-    """`apps` keeps its CHECKs under their original names through the refactor —
-    renaming one would silently leave the deployed constraint unmanaged."""
-    names = _check_names(model)
-    assert f"ck_{table}_default_branch_landing" in names
-    assert f"ck_{table}_default_branch_landing_provenance" in names
+def test_repositories_carries_the_landing_checks():
+    names = _check_names(Repository)
+    assert "ck_repositories_default_branch_landing" in names
+    assert "ck_repositories_default_branch_landing_provenance" in names
+
+
+def test_apps_no_longer_declares_the_landing_fact():
+    """The fact has ONE owner. Leaving a mapped copy on the app would let a
+    writer believe they had recorded something the read path never consults —
+    two owners of one fact is the duplication this entity exists to remove. The
+    database columns 0005 added are dropped by 0007."""
+    assert not _check_names(App)
+    assert not [c for c in App.__table__.columns if "default_branch_landing" in c.name]
 
 
 def test_repositories_refuses_a_non_canonical_key():

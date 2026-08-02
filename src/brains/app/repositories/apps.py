@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from src.brains.app.models import (
     LANDING_REDEPLOYS,
     LANDING_UNKNOWN,
     App,
+    Repository,
 )
 
 
@@ -114,46 +115,70 @@ def canonical_repo_slug(value: str | None) -> str | None:
     return f"{parts[0]}/{parts[1]}".lower()
 
 
-def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
-    """Fold every REGISTERED app fed by one repository into a single answer.
+def aggregate_landing(
+    github_repo: str,
+    repository: dict | None,
+    app_slugs: list[str],
+) -> dict:
+    """Build the answer for one repository.
 
-    `rows` is the apps whose canonical github_repo matches, each
-    {slug, default_branch_landing, determined_at, evidence}.
+    `repository` is its row — {landing, determined_at, evidence} — or None when
+    the registry holds no record of it. `app_slugs` are the apps this repository
+    feeds, which is the DENOMINATOR, not the source of the answer.
 
-    One repository can feed several running apps — AlobarQuest/brain deploys
-    app-brain, infra-brain, open-brain and code-brain from a single ci.yml — so
-    the question "does merging here change something already running?" is a fold
-    over all of them, not a per-app lookup. Asking one brain's slug alone would
-    answer for a quarter of what the merge actually moves.
+    The determination is read, not folded. WS-P2.29 folded it out of the apps
+    because that was where it was stored; it is a property of the repository —
+    `AlobarQuest/brain` feeds four running apps and one answer covers all four,
+    and `intent-packages` feeds none and still has an answer. Storing it once
+    removes both the four-way duplication and the possibility that the copies
+    disagree.
 
-    Precedence is `redeploys` > `unknown` > `inert`. One assessed redeploying app
-    settles the answer whatever its siblings hold, and `inert` requires that every
-    matched app was assessed and came back inert. An unmatched repository is
-    `unknown` — App Brain not knowing about a repository is never evidence that
-    merging to it is safe.
+    A repository the registry has never heard of is `unknown` — App Brain not
+    knowing about a repository is never evidence that merging to it is safe — and
+    so is a registered repository nobody has assessed. The two are distinguished
+    by `reason`, because "not an app of ours" and "an app of ours nobody looked
+    at" are materially different situations to a caller.
 
     THE BOUND, stated exactly, because `inert` is the answer a caller reads as
-    permission: this fold ranges over apps REGISTERED IN APP BRAIN. It cannot see
-    an app that deploys from this repository and was never onboarded. `inert`
-    therefore means "every app the estate knows of that is fed by this repository
-    is inert", not "nothing anywhere redeploys". `matched_apps` is returned so a
-    caller never receives `inert` without also receiving its denominator.
+    permission: this answers for what the ESTATE HAS RECORDED. It cannot see an
+    app that deploys from this repository and was never onboarded, nor a trigger
+    added after the determination was made. `inert` therefore means "assessed on
+    `determined_at`, from `evidence`, and nothing the estate knows of redeploys",
+    not "nothing anywhere redeploys". `matched_apps` and the provenance are
+    returned so a caller never receives `inert` without its denominator and its
+    date.
     """
-    values = [r.get("default_branch_landing") for r in rows]
-    if LANDING_REDEPLOYS in values:
-        landing, reason = LANDING_REDEPLOYS, None
-    elif not rows:
+    landing = (repository or {}).get("landing")
+    if landing in (LANDING_REDEPLOYS, LANDING_INERT):
+        reason = None
+    elif repository is None and not app_slugs:
         landing, reason = LANDING_UNKNOWN, "no_app_record"
-    elif all(v == LANDING_INERT for v in values):
-        landing, reason = LANDING_INERT, None
     else:
+        # Registered — as a repository, as an app, or both — and unassessed.
         landing, reason = LANDING_UNKNOWN, "not_assessed"
+
+    determined_at = (repository or {}).get("determined_at") if reason is None else None
+    evidence = (repository or {}).get("evidence") if reason is None else None
     return {
         "github_repo": github_repo,
         "landing": landing,
         "reason": reason,
-        "matched_apps": len(rows),
-        "apps": sorted(rows, key=lambda r: r["slug"]),
+        "determined_at": determined_at,
+        "evidence": evidence,
+        "matched_apps": len(app_slugs),
+        # WS-P2.28 is building against this response shape right now, so every
+        # key it already had keeps its meaning. The per-app landing keys report
+        # the determination GOVERNING that app, which is now the repository's —
+        # for every single-app repository that is the same value it always was.
+        "apps": [
+            {
+                "slug": slug,
+                "default_branch_landing": landing,
+                "determined_at": determined_at,
+                "evidence": evidence,
+            }
+            for slug in sorted(app_slugs)
+        ],
     }
 
 
@@ -201,44 +226,114 @@ class AppRepository:
         ]
         return match_environment(rows, coolify_app_uuid=coolify_app_uuid, fqdn=fqdn)
 
+    async def get_repository(self, canonical_slug: str) -> Repository | None:
+        result = await self.session.execute(
+            select(Repository).where(Repository.canonical_slug == canonical_slug)
+        )
+        return result.scalar_one_or_none()
+
+    async def apps_fed_by(self, canonical_slug: str) -> list[str]:
+        """Slugs of the apps this repository deploys.
+
+        Matched on the CANONICAL slug on both sides, in Python rather than SQL. A
+        SQL `lower(github_repo) = :target` misses every row stored in a different
+        shape (`https://github.com/O/r`, `O/r.git`), which would undercount the
+        denominator a caller weighs `inert` against. Same reasoning as
+        resolve_environment, and N is tiny (~25 apps).
+        """
+        result = await self.session.execute(select(App.slug, App.github_repo))
+        return [
+            r.slug for r in result.all() if canonical_repo_slug(r.github_repo) == canonical_slug
+        ]
+
     async def resolve_default_branch_landing(self, github_repo: str) -> dict:
         """Answer "does merging to this repository's default branch change
         anything already running?" for a GitHub "owner/repo" slug.
 
-        Compared on the CANONICAL slug on both sides, in Python rather than SQL.
-        A SQL `lower(github_repo) = :target` misses every row stored in a
-        different shape (`https://github.com/O/r`, `O/r.git`), and a missed row
-        is not merely absent from the answer — it cannot make the answer
-        `unknown`, so a repository that redeploys reads `inert`. Same reasoning
-        as resolve_environment, and N is tiny (~25 apps).
+        A reference the canonicalizer cannot parse names no repository we could
+        hold, so it answers `unknown` rather than raising — the route must always
+        return an answer.
         """
         target = canonical_repo_slug(github_repo)
         if not target:
-            return aggregate_landing(github_repo, [])
-        result = await self.session.execute(
-            select(
-                App.slug,
-                App.github_repo,
-                App.default_branch_landing,
-                App.default_branch_landing_determined_at,
-                App.default_branch_landing_evidence,
-            )
-        )
-        rows = [
+            return aggregate_landing(github_repo, None, [])
+        repository = await self.get_repository(target)
+        row = (
             {
-                "slug": r.slug,
-                "default_branch_landing": r.default_branch_landing,
+                "landing": repository.default_branch_landing,
+                "determined_at": (
+                    repository.default_branch_landing_determined_at.isoformat()
+                    if repository.default_branch_landing_determined_at
+                    else None
+                ),
+                "evidence": repository.default_branch_landing_evidence,
+            }
+            if repository
+            else None
+        )
+        return aggregate_landing(github_repo, row, await self.apps_fed_by(target))
+
+    async def ensure_repository(self, github_repo: str) -> Repository | None:
+        """Register the repository an app declares, if it is not registered yet.
+
+        Called whenever an app's github_repo is set, so that "an app of ours,
+        nobody assessed it" reports `not_assessed` rather than `no_app_record`.
+        The row is born unassessed: existing is not evidence of anything.
+        """
+        target = canonical_repo_slug(github_repo)
+        if not target:
+            return None
+        existing = await self.get_repository(target)
+        if existing:
+            return existing
+        repository = Repository(canonical_slug=target, github_repo=github_repo.strip())
+        self.session.add(repository)
+        await self.session.flush()
+        return repository
+
+    async def record_repository_landing(
+        self,
+        github_repo: str,
+        landing: str | None,
+        evidence: str | None,
+        determined_at: datetime | None,
+    ) -> Repository | None:
+        """Write (or retract, with landing=None) a repository's determination,
+        registering the repository if this is the first thing said about it.
+
+        Recording IS registering: a repository row with no determination is
+        indistinguishable from no row at all — both answer `unknown` — so there
+        is nothing for a separate "register" step to accomplish.
+        """
+        target = canonical_repo_slug(github_repo)
+        if not target:
+            return None
+        repository = await self.get_repository(target)
+        if repository is None:
+            repository = Repository(canonical_slug=target, github_repo=github_repo.strip())
+            self.session.add(repository)
+        repository.default_branch_landing = landing
+        repository.default_branch_landing_determined_at = determined_at
+        repository.default_branch_landing_evidence = evidence
+        repository.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return repository
+
+    async def list_repositories(self) -> list[dict]:
+        result = await self.session.execute(select(Repository).order_by(Repository.canonical_slug))
+        return [
+            {
+                "github_repo": r.github_repo,
+                "canonical_slug": r.canonical_slug,
+                "default_branch_landing": r.default_branch_landing or LANDING_UNKNOWN,
                 "determined_at": (
                     r.default_branch_landing_determined_at.isoformat()
                     if r.default_branch_landing_determined_at
                     else None
                 ),
-                "evidence": r.default_branch_landing_evidence,
             }
-            for r in result.all()
-            if canonical_repo_slug(r.github_repo) == target
+            for r in result.scalars().all()
         ]
-        return aggregate_landing(github_repo, rows)
 
     async def create_app(self, **kwargs) -> App:
         app = App(**kwargs)
