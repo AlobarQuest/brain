@@ -35,31 +35,6 @@ def landing_in_clause() -> str:
     return f"default_branch_landing IN ({values})"
 
 
-def landing_check_constraints(table: str) -> tuple[CheckConstraint, ...]:
-    """The two CHECKs that make a landing value legible and attributable.
-
-    Shared by `apps` and `repositories` because the fact means the same thing on
-    both while the move is in flight, and a constraint that exists on only one of
-    two tables holding one fact is a gap, not a saving.
-    """
-    return (
-        CheckConstraint(
-            f"default_branch_landing IS NULL OR {landing_in_clause()}",
-            name=f"ck_{table}_default_branch_landing",
-        ),
-        # The fact is not assertable without its provenance. A value with no
-        # determination date and no evidence is an unattributable claim, and
-        # knowing when and from what it was decided is the only thing that makes
-        # a later drift check possible at all.
-        CheckConstraint(
-            "default_branch_landing IS NULL OR ("
-            "default_branch_landing_determined_at IS NOT NULL "
-            "AND btrim(default_branch_landing_evidence) <> '')",
-            name=f"ck_{table}_default_branch_landing_provenance",
-        ),
-    )
-
-
 # A repositories.canonical_slug is storable only in the one shape the read path
 # looks up. Mirrors canonical_repo_slug's output; migration 0006 holds a frozen
 # copy and tests/brains/test_repositories.py pins the two in sync.
@@ -83,7 +58,20 @@ class Repository(Base):
 
     __tablename__ = "repositories"
     __table_args__ = (
-        *landing_check_constraints("repositories"),
+        CheckConstraint(
+            f"default_branch_landing IS NULL OR {landing_in_clause()}",
+            name="ck_repositories_default_branch_landing",
+        ),
+        # The fact is not assertable without its provenance. A value with no
+        # determination date and no evidence is an unattributable claim, and
+        # knowing when and from what it was decided is the only thing that makes
+        # a later drift check possible at all.
+        CheckConstraint(
+            "default_branch_landing IS NULL OR ("
+            "default_branch_landing_determined_at IS NOT NULL "
+            "AND btrim(default_branch_landing_evidence) <> '')",
+            name="ck_repositories_default_branch_landing_provenance",
+        ),
         CheckConstraint(
             "canonical_slug = lower(canonical_slug) "
             f"AND canonical_slug ~ '{CANONICAL_SLUG_PATTERN}'",

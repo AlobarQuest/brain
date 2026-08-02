@@ -1,12 +1,12 @@
-"""Tests for the `repositories` entity (WS-P2.30, schema step).
+"""Tests for the `repositories` entity's SCHEMA (WS-P2.30). Its behavior is in
+tests/brains/test_default_branch_landing.py; these pin the three migrations
+against the model and against each other:
 
-At this revision nothing reads the table — these pin the schema against the model
-and against the canonicalization the read path will use once it does:
-
-  - the migration's frozen landing vocabulary and slug pattern match the model
-  - the migration's SQL canonicalization, replayed through Python's `re`, agrees
-    with canonical_repo_slug on every shape canonical_repo_slug is tested on
-  - both tables carry the two landing CHECKs, under their original names
+  - 0006's frozen landing vocabulary and slug pattern match the model
+  - 0006's SQL canonicalization, replayed through Python's `re`, agrees with
+    canonical_repo_slug on every shape canonical_repo_slug is tested on
+  - the landing CHECKs live on `repositories` and nowhere else
+  - 0007 freezes the same constants 0006 did, and its downgrade repopulates
 
 No DB required (matches the repo's mock-based style). The SQL is additionally
 exercised against a real Postgres in-session; see the build report.
@@ -27,16 +27,27 @@ from src.brains.app.models import (
 from src.brains.app.repositories.apps import canonical_repo_slug
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-MIGRATION = REPO_ROOT / "src/brains/app/migrations/versions/0006_repositories.py"
+VERSIONS = REPO_ROOT / "src/brains/app/migrations/versions"
+MIGRATION = VERSIONS / "0006_repositories.py"
+DROP_MIGRATION = VERSIONS / "0007_drop_app_landing_columns.py"
 
 
-@pytest.fixture(scope="module")
-def migration():
-    spec = importlib.util.spec_from_file_location("_m0006", MIGRATION)
+def _load(path: pathlib.Path):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(scope="module")
+def migration():
+    return _load(MIGRATION)
+
+
+@pytest.fixture(scope="module")
+def drop_migration():
+    return _load(DROP_MIGRATION)
 
 
 # ---------------------------------------------------------------------------
@@ -136,12 +147,43 @@ def test_repositories_carries_the_landing_checks():
 
 
 def test_apps_no_longer_declares_the_landing_fact():
-    """The fact has ONE owner. Leaving a mapped copy on the app would let a
-    writer believe they had recorded something the read path never consults —
-    two owners of one fact is the duplication this entity exists to remove. The
-    database columns 0005 added are dropped by 0007."""
+    """The fact has ONE owner. Leaving a copy on the app would let a writer
+    believe they had recorded something the read path never consults — two
+    owners of one fact is the duplication this entity exists to remove."""
     assert not _check_names(App)
     assert not [c for c in App.__table__.columns if "default_branch_landing" in c.name]
+
+
+# ---------------------------------------------------------------------------
+# 0007 — the drop, and its repopulating downgrade
+# ---------------------------------------------------------------------------
+
+
+def test_the_drop_migration_freezes_the_same_constants(migration, drop_migration):
+    """0007's downgrade rebuilds what 0006 read, so it must canonicalize the same
+    way. Both hold frozen copies (a migration must not import the model, nor
+    another migration); nothing but this keeps them together."""
+    for name in (
+        "_LANDING_VALUES",
+        "_STRIP_SCHEME",
+        "_STRIP_SCP",
+        "_STRIP_GIT_SUFFIX",
+        "_OWNER_REPO",
+    ):
+        assert getattr(drop_migration, name) == getattr(migration, name), name
+
+
+def test_the_downgrade_repopulates_rather_than_re_adding_empty_columns():
+    """Three empty columns would let the pre-0006 code answer `unknown` for every
+    repository in the estate — a silent, total fail-closed regression at exactly
+    the moment someone is recovering from something else."""
+    src = DROP_MIGRATION.read_text()
+    downgrade = src.split("def downgrade()", 1)[1]
+    assert "UPDATE apps" in downgrade
+    assert "FROM repositories" in downgrade
+    # and it must populate BEFORE the provenance CHECK, or every restored row
+    # fails it on the way in
+    assert downgrade.index("UPDATE apps") < downgrade.index("ck_apps_default_branch_landing")
 
 
 def test_repositories_refuses_a_non_canonical_key():
