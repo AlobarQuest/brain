@@ -121,20 +121,6 @@ def test_landing_in_clause_has_no_trailing_comma():
     assert ",)" not in landing_in_clause()
 
 
-def test_migration_frozen_vocabulary_matches_the_model():
-    """0005 inlines a frozen copy (migrations must not import the model). Its
-    columns are dead after the cut-over and 0007 drops them; while they exist,
-    the constraint they carry must still name the vocabulary in force."""
-    src = (
-        REPO_ROOT / "src/brains/app/migrations/versions/0005_default_branch_landing.py"
-    ).read_text()
-    ns: dict = {}
-    for line in src.splitlines():
-        if line.startswith("_LANDING_VALUES"):
-            exec(line, ns)
-    assert ns["_LANDING_VALUES"] == LANDING_VALUES
-
-
 def test_read_paths_name_routes_that_actually_exist(env_setup):
     """READ_PATHS is matched EXACTLY by the middleware, and the route paths are
     literals in their decorators — so a rename would silently leave the read key
