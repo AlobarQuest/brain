@@ -11,13 +11,20 @@ from src.core.db import get_session_factory
 APP_STATUSES = ["active", "archived", "in-progress", "paused"]
 
 
-def serialize_app_profile(app, coverage: dict) -> dict:
+def serialize_app_profile(app, coverage: dict, landing: dict | None = None) -> dict:
     """Build the get_app response. This dict IS the public contract consumed by
     downstream agents (e.g. the infraops brief generator); keep it stable and
     additive. `github_repo` is "owner/repo" or null; `environments` is a list of
     {name, branch, url, coolify_app_uuid} records (branch/url null when unknown).
-    `default_branch_landing` is 'redeploys' | 'inert' | null, null meaning nobody
-    has assessed this app — never "does not redeploy"."""
+
+    `landing` is this app's REPOSITORY's determination, or None. The three
+    default_branch_landing keys keep their names and meanings, but the fact is a
+    property of the repository the app deploys from, so an app with no
+    `github_repo` — nowhere for a commit to land — reports `unknown`. That is
+    weaker than the `inert` such apps held under WS-P2.29 and it is the honest
+    answer: a question about a repository that does not exist has no answer, and
+    `github_repo` being null already records why."""
+    landing = landing or {}
     return {
         "slug": app.slug,
         "name": app.name,
@@ -31,13 +38,9 @@ def serialize_app_profile(app, coverage: dict) -> dict:
         # invites `if not landing: proceed`, which reads "nobody looked" as
         # permission — the exact inference this record exists to remove. The REST
         # route makes the same projection; the two surfaces must agree.
-        "default_branch_landing": app.default_branch_landing or LANDING_UNKNOWN,
-        "default_branch_landing_determined_at": (
-            app.default_branch_landing_determined_at.isoformat()
-            if app.default_branch_landing_determined_at
-            else None
-        ),
-        "default_branch_landing_evidence": app.default_branch_landing_evidence,
+        "default_branch_landing": landing.get("landing") or LANDING_UNKNOWN,
+        "default_branch_landing_determined_at": landing.get("determined_at"),
+        "default_branch_landing_evidence": landing.get("evidence"),
         "status": app.status,
         "tags": app.tags,
         "onboarding_status": app.onboarding_status,
@@ -71,10 +74,15 @@ def register_app_tools(mcp: FastMCP) -> None:
 
             knowledge_repo = KnowledgeRepository(session)
             type_counts = await knowledge_repo.count_by_type(slug)
+            landing = (
+                await app_repo.resolve_default_branch_landing(app.github_repo)
+                if app.github_repo
+                else None
+            )
 
         coverage = {t: type_counts.get(t, 0) for t in KNOWLEDGE_TYPES}
 
-        return serialize_app_profile(app, coverage)
+        return serialize_app_profile(app, coverage, landing)
 
     @mcp.tool()
     async def update_app(
@@ -123,6 +131,12 @@ def register_app_tools(mcp: FastMCP) -> None:
             app = await repo.update_app(slug, **fields)
             if not app:
                 return {"error": "not_found"}
+            if "github_repo" in fields:
+                # Declaring the repository registers it, unassessed. Without
+                # this, an app the estate knows perfectly well would answer
+                # `no_app_record` — "we have never heard of this repository" —
+                # when the truth is "we know it and nobody has assessed it".
+                await repo.ensure_repository(fields["github_repo"])
             await session.commit()
 
         return {
@@ -133,13 +147,35 @@ def register_app_tools(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
-    async def record_default_branch_landing(slug: str, landing: str, evidence: str) -> dict:
-        """Record whether landing a commit on this app's default branch changes
-        something already running.
+    async def list_repositories() -> dict:
+        """List every repository the estate reasons about, with its
+        default-branch landing.
+
+        A repository may appear here with NO application: that is a repository
+        the factory can target and nothing deploys from — `intent-packages` and
+        `project-standards` are the cases this exists for. `list_apps` cannot
+        show them, because they are not apps.
+        """
+        async with get_session_factory()() as session:
+            repositories = await AppRepository(session).list_repositories()
+        return {"repositories": repositories}
+
+    @mcp.tool()
+    async def record_default_branch_landing(github_repo: str, landing: str, evidence: str) -> dict:
+        """Record whether landing a commit on this REPOSITORY's default branch
+        changes something already running.
+
+        github_repo is "owner/repo". Keyed on the repository, not an app slug,
+        because that is what the fact is a property of: one repository can feed
+        several running apps (AlobarQuest/brain feeds four) and one answer covers
+        all of them, and a repository the factory targets may deploy nothing at
+        all and still have an answer. Recording against a repository the registry
+        has not seen REGISTERS it — that is how a factory-targetable,
+        not-deployed repository enters the registry.
 
         landing is 'redeploys' (merging advances something already serving, with
         no further human act) or 'inert' (nothing already serving changes until a
-        separate act). An app nobody has assessed holds null, which reads as
+        separate act). A repository nobody has assessed holds null, which reads as
         'unknown' and must never be read as 'inert'.
 
         Passing landing='unknown' RETRACTS a determination, clearing all three
@@ -169,22 +205,28 @@ def register_app_tools(mcp: FastMCP) -> None:
                 return {"error": f"invalid_params: landing must be one of {allowed}"}
             if not evidence or not evidence.strip():
                 return {"error": "invalid_params: evidence is required (what did you read?)"}
+        # A reference the fold cannot match would be stored under a key nobody
+        # will ever ask for, while the key they do ask returns no_app_record.
+        if canonical_repo_slug(github_repo) is None:
+            return {"error": "invalid_params: github_repo must be 'owner/repo'"}
 
         determined_at = None if retracting else datetime.now(timezone.utc)
         async with get_session_factory()() as session:
             repo = AppRepository(session)
-            app = await repo.update_app(
-                slug,
-                default_branch_landing=None if retracting else landing,
-                default_branch_landing_determined_at=determined_at,
-                default_branch_landing_evidence=None if retracting else evidence.strip(),
+            repository = await repo.record_repository_landing(
+                github_repo,
+                None if retracting else landing,
+                None if retracting else evidence.strip(),
+                determined_at,
             )
-            if not app:
-                return {"error": "not_found"}
+            if not repository:
+                return {"error": "invalid_params: github_repo must be 'owner/repo'"}
+            canonical_slug = repository.canonical_slug
             await session.commit()
 
         return {
-            "slug": slug,
+            "github_repo": github_repo,
+            "canonical_slug": canonical_slug,
             "default_branch_landing": LANDING_UNKNOWN if retracting else landing,
             "determined_at": determined_at.isoformat() if determined_at else None,
         }

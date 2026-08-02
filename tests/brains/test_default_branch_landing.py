@@ -1,9 +1,9 @@
-"""Tests for the default-branch landing fact (WS-P2.29):
-  - the pure fold (aggregate_landing) over the apps one repository feeds
+"""Tests for the default-branch landing fact (WS-P2.29, moved to the repository
+by WS-P2.30):
+  - the pure answer-builder (aggregate_landing) for one repository
   - GET /api/apps/default-branch-landing behavior, with the repo mocked
   - the read-only key: it reaches the read paths and nothing else
   - the determination file's own shape, and its vocabulary against the model
-    and against the migration's frozen copy
 
 No DB required (matches the repo's mock-based style).
 """
@@ -28,81 +28,86 @@ READ_KEY = "b" * 64
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 BRAIN = "AlobarQuest/brain"
+BRAINS = ["app-brain", "code-brain", "infra-brain", "open-brain"]
 
 
-def _row(slug, landing, evidence="read the workflow"):
+def _repository(landing, evidence="read the workflow"):
+    """A repositories row as the repository layer projects it."""
     return {
-        "slug": slug,
-        "default_branch_landing": landing,
+        "landing": landing,
         "determined_at": "2026-08-02T00:00:00+00:00" if landing else None,
         "evidence": evidence if landing else None,
     }
 
 
 # ---------------------------------------------------------------------------
-# The fold
+# The answer
 # ---------------------------------------------------------------------------
 
 
 class TestAggregateLanding:
-    def test_no_matching_app_is_unknown_not_inert(self):
+    def test_an_unregistered_repository_is_unknown_not_inert(self):
         """App Brain not knowing a repository is never evidence merging is safe."""
-        out = aggregate_landing("AlobarQuest/nope", [])
+        out = aggregate_landing("AlobarQuest/nope", None, [])
         assert out["landing"] == LANDING_UNKNOWN
         assert out["reason"] == "no_app_record"
         assert out["apps"] == []
 
-    def test_single_redeploying_app(self):
-        out = aggregate_landing("AlobarQuest/change-manager", [_row("change-manager", "redeploys")])
+    def test_a_redeploying_repository(self):
+        out = aggregate_landing(
+            "AlobarQuest/change-manager", _repository("redeploys"), ["change-manager"]
+        )
         assert out["landing"] == LANDING_REDEPLOYS
         assert out["reason"] is None
 
-    def test_single_inert_app(self):
-        out = aggregate_landing("AlobarQuest/orchestrator", [_row("orchestrator", "inert")])
+    def test_an_inert_repository(self):
+        out = aggregate_landing("AlobarQuest/orchestrator", _repository("inert"), ["orchestrator"])
         assert out["landing"] == LANDING_INERT
         assert out["reason"] is None
 
-    def test_unassessed_app_is_unknown_distinguishable_from_inert(self):
-        out = aggregate_landing("AlobarQuest/x", [_row("x", None)])
+    def test_a_registered_but_unassessed_repository_is_unknown(self):
+        out = aggregate_landing("AlobarQuest/x", _repository(None), ["x"])
         assert out["landing"] == LANDING_UNKNOWN
         assert out["reason"] == "not_assessed"
-        # and it is NOT the same answer as an assessed non-deploying app
-        assert aggregate_landing("AlobarQuest/y", [_row("y", "inert")])["landing"] == LANDING_INERT
+        # and it is NOT the same answer as an assessed non-deploying repository
+        assert (
+            aggregate_landing("AlobarQuest/y", _repository("inert"), ["y"])["landing"]
+            == LANDING_INERT
+        )
 
-    def test_four_brains_one_repository_all_redeploy(self):
-        """AlobarQuest/brain feeds four running services from one ci.yml."""
-        rows = [
-            _row("app-brain", "redeploys"),
-            _row("code-brain", "redeploys"),
-            _row("infra-brain", "redeploys"),
-            _row("open-brain", "redeploys"),
-        ]
-        out = aggregate_landing(BRAIN, rows)
-        assert out["landing"] == LANDING_REDEPLOYS
-        assert [a["slug"] for a in out["apps"]] == [
-            "app-brain",
-            "code-brain",
-            "infra-brain",
-            "open-brain",
-        ]
-
-    def test_one_redeploying_sibling_settles_the_answer(self):
-        """Asking a single slug would answer for a quarter of what the merge moves."""
-        rows = [_row("open-brain", "inert"), _row("app-brain", "redeploys")]
-        assert aggregate_landing(BRAIN, rows)["landing"] == LANDING_REDEPLOYS
-
-    def test_redeploys_wins_over_an_unassessed_sibling(self):
-        """Already knowing something redeploys is not weakened by an unknown."""
-        rows = [_row("app-brain", "redeploys"), _row("code-brain", None)]
-        out = aggregate_landing(BRAIN, rows)
-        assert out["landing"] == LANDING_REDEPLOYS
-
-    def test_inert_requires_every_sibling_assessed(self):
-        """One unassessed sibling makes the whole repository unknown, not inert."""
-        rows = [_row("open-brain", "inert"), _row("code-brain", None)]
-        out = aggregate_landing(BRAIN, rows)
+    def test_an_app_with_no_repository_row_is_unassessed_not_unregistered(self):
+        """`no_app_record` must keep meaning "never heard of it". An app we know
+        perfectly well, whose repository nobody assessed, is `not_assessed`."""
+        out = aggregate_landing("AlobarQuest/x", None, ["x"])
         assert out["landing"] == LANDING_UNKNOWN
         assert out["reason"] == "not_assessed"
+
+    def test_four_brains_one_repository_one_answer(self):
+        """AlobarQuest/brain feeds four running services from one ci.yml. WS-P2.29
+        stored four copies of that answer and folded them; there is now one."""
+        out = aggregate_landing(BRAIN, _repository("redeploys"), BRAINS)
+        assert out["landing"] == LANDING_REDEPLOYS
+        assert [a["slug"] for a in out["apps"]] == BRAINS
+        assert out["matched_apps"] == 4
+        # every app it feeds reports the determination that governs it
+        assert {a["default_branch_landing"] for a in out["apps"]} == {LANDING_REDEPLOYS}
+
+    def test_a_repository_with_no_apps_still_has_an_answer(self):
+        """The workstream's point: the factory targets repositories that deploy
+        nothing, and an app registry structurally cannot answer for them."""
+        out = aggregate_landing("AlobarQuest/intent-packages", _repository("inert"), [])
+        assert out["landing"] == LANDING_INERT
+        assert out["reason"] is None
+        assert out["matched_apps"] == 0
+        # provenance must be reachable when there are no apps to carry it
+        assert out["evidence"] == "read the workflow"
+        assert out["determined_at"] is not None
+
+    def test_provenance_is_absent_exactly_when_the_answer_is_unknown(self):
+        """An `unknown` carries no determination, so it must carry no date or
+        evidence either — a caller must not read staleness into a non-answer."""
+        out = aggregate_landing("AlobarQuest/x", _repository(None), ["x"])
+        assert out["determined_at"] is None and out["evidence"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +122,9 @@ def test_landing_in_clause_has_no_trailing_comma():
 
 
 def test_migration_frozen_vocabulary_matches_the_model():
-    """0005 inlines a frozen copy (migrations must not import the model)."""
+    """0005 inlines a frozen copy (migrations must not import the model). Its
+    columns are dead after the cut-over and 0007 drops them; while they exist,
+    the constraint they carry must still name the vocabulary in force."""
     src = (
         REPO_ROOT / "src/brains/app/migrations/versions/0005_default_branch_landing.py"
     ).read_text()
@@ -149,9 +156,10 @@ def test_unknown_is_never_a_stored_value():
 
 
 class TestCanonicalRepoSlug:
-    """A repository stored in a shape the fold cannot match is not merely absent
-    from the answer — it cannot make the answer 'unknown', so a repository that
-    redeploys silently reads 'inert'."""
+    """The lookup key. A repository row is stored under its canonical slug and a
+    query is canonicalized before it, so every shape the estate writes reaches
+    the same record — and an app stored in an odd shape still counts toward the
+    denominator a caller weighs `inert` against."""
 
     @pytest.mark.parametrize(
         "raw",
@@ -188,19 +196,19 @@ class TestCanonicalRepoSlug:
     def test_unparseable_is_none(self, raw):
         assert canonical_repo_slug(raw) is None
 
-    def test_a_differently_shaped_sibling_is_still_folded_in(self):
-        """The fail-open the canonicalization exists to prevent: an app stored as
-        a full URL must not vanish from its repository's fold."""
-        rows = [_row("open-brain", "inert"), _row("app-brain", "redeploys")]
-        assert aggregate_landing(BRAIN, rows)["landing"] == LANDING_REDEPLOYS
+    def test_every_shape_reaches_the_same_repository_record(self):
+        """One repository written four ways is one lookup key, so a determination
+        recorded against any of them is served for all of them."""
+        shapes = [BRAIN, "alobarquest/brain", "https://github.com/AlobarQuest/brain.git", BRAIN[:]]
+        assert len({canonical_repo_slug(s) for s in shapes}) == 1
 
     def test_inert_is_never_returned_without_its_denominator(self):
-        """`inert` ranges over REGISTERED apps only, so a caller must always see
-        how many were actually matched."""
-        out = aggregate_landing("AlobarQuest/orchestrator", [_row("orchestrator", "inert")])
+        """`inert` ranges over what the estate RECORDED, so a caller must always
+        see how many apps were matched."""
+        out = aggregate_landing("AlobarQuest/orchestrator", _repository("inert"), ["orchestrator"])
         assert out["landing"] == LANDING_INERT
         assert out["matched_apps"] == 1
-        assert aggregate_landing("AlobarQuest/nope", [])["matched_apps"] == 0
+        assert aggregate_landing("AlobarQuest/nope", None, [])["matched_apps"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +266,9 @@ async def _client(env_setup):
 
 
 async def test_landing_200_returns_answer(env_setup, monkeypatch):
-    rec = aggregate_landing("AlobarQuest/change-manager", [_row("change-manager", "redeploys")])
+    rec = aggregate_landing(
+        "AlobarQuest/change-manager", _repository("redeploys"), ["change-manager"]
+    )
     _patch_repo(monkeypatch, rec)
     async with await _client(env_setup) as client:
         resp = await client.get(
@@ -273,7 +283,7 @@ async def test_landing_200_returns_answer(env_setup, monkeypatch):
 async def test_landing_unknown_is_200_not_404(env_setup, monkeypatch):
     """'unknown' is an answer and must appear on the wire as one — a 404 would be
     indistinguishable from the route being absent because the brain is stale."""
-    _patch_repo(monkeypatch, aggregate_landing("AlobarQuest/nope", []))
+    _patch_repo(monkeypatch, aggregate_landing("AlobarQuest/nope", None, []))
     async with await _client(env_setup) as client:
         resp = await client.get(
             "/api/apps/default-branch-landing",
@@ -305,7 +315,7 @@ async def test_landing_401_without_key(env_setup, monkeypatch):
 
 
 async def test_read_key_reaches_the_landing_route(env_setup, monkeypatch):
-    rec = aggregate_landing("AlobarQuest/orchestrator", [_row("orchestrator", "inert")])
+    rec = aggregate_landing("AlobarQuest/orchestrator", _repository("inert"), ["orchestrator"])
     _patch_repo(monkeypatch, rec)
     async with await _client(env_setup) as client:
         resp = await client.get(
@@ -406,9 +416,10 @@ async def test_non_ascii_key_is_401_not_500(env_setup, monkeypatch, via):
 
 
 class _RecordingRepo:
-    """Captures what update_app was asked to write, without a DB."""
+    """Captures what the tools asked to write, without a DB."""
 
     last: dict = {}
+    registered: list = []
 
     def __init__(self, session):
         pass
@@ -416,6 +427,19 @@ class _RecordingRepo:
     async def update_app(self, slug, **fields):
         _RecordingRepo.last = {"slug": slug, **fields}
         return type("A", (), {"slug": slug, "name": "n", "status": "active"})()
+
+    async def ensure_repository(self, github_repo):
+        _RecordingRepo.registered.append(github_repo)
+        return type("R", (), {"canonical_slug": github_repo.lower()})()
+
+    async def record_repository_landing(self, github_repo, landing, evidence, determined_at):
+        _RecordingRepo.last = {
+            "github_repo": github_repo,
+            "default_branch_landing": landing,
+            "default_branch_landing_evidence": evidence,
+            "default_branch_landing_determined_at": determined_at,
+        }
+        return type("R", (), {"canonical_slug": github_repo.lower()})()
 
 
 class _CommitSession:
@@ -447,31 +471,72 @@ async def _call(monkeypatch, name, **kwargs):
     return json.loads(result.content[0].text)
 
 
+REPO = "AlobarQuest/x"
+
+
 async def test_record_rejects_out_of_vocabulary_landing(monkeypatch):
     out = await _call(
-        monkeypatch, "record_default_branch_landing", slug="x", landing="maybe", evidence="e"
+        monkeypatch,
+        "record_default_branch_landing",
+        github_repo=REPO,
+        landing="maybe",
+        evidence="e",
     )
     assert "invalid_params" in out["error"]
 
 
 async def test_record_rejects_blank_evidence(monkeypatch):
     out = await _call(
-        monkeypatch, "record_default_branch_landing", slug="x", landing="inert", evidence="   "
+        monkeypatch,
+        "record_default_branch_landing",
+        github_repo=REPO,
+        landing="inert",
+        evidence="   ",
     )
     assert "evidence is required" in out["error"]
+
+
+@pytest.mark.parametrize("bad", ["not-a-slug", "https://github.com/", "   "])
+async def test_record_refuses_a_repo_reference_the_lookup_cannot_match(monkeypatch, bad):
+    """Stored under a key nobody will ask for, while the key they do ask returns
+    no_app_record — a determination that exists and is unreachable."""
+    out = await _call(
+        monkeypatch,
+        "record_default_branch_landing",
+        github_repo=bad,
+        landing="inert",
+        evidence="Read: the workflow file.",
+    )
+    assert "github_repo must be" in out["error"]
 
 
 async def test_record_stamps_determined_at_server_side(monkeypatch):
     out = await _call(
         monkeypatch,
         "record_default_branch_landing",
-        slug="x",
+        github_repo=REPO,
         landing="redeploys",
         evidence="Read: the workflow file.",
     )
     assert out["default_branch_landing"] == "redeploys"
+    assert out["canonical_slug"] == "alobarquest/x"
     assert _RecordingRepo.last["default_branch_landing_determined_at"] is not None
     assert _RecordingRepo.last["default_branch_landing_evidence"] == "Read: the workflow file."
+
+
+async def test_recording_registers_a_repository_with_no_application(monkeypatch):
+    """The workstream's point: this is how a factory-targetable, not-deployed
+    repository enters the registry. There is no separate register step, because
+    a registered-but-unassessed row answers the same `unknown` as no row."""
+    out = await _call(
+        monkeypatch,
+        "record_default_branch_landing",
+        github_repo="AlobarQuest/intent-packages",
+        landing="inert",
+        evidence="Read: the workflow files, the webhook list, the Pages project list.",
+    )
+    assert out["default_branch_landing"] == "inert"
+    assert _RecordingRepo.last["github_repo"] == "AlobarQuest/intent-packages"
 
 
 async def test_a_determination_can_be_retracted_to_unknown(monkeypatch):
@@ -479,7 +544,11 @@ async def test_a_determination_can_be_retracted_to_unknown(monkeypatch):
     writes, so a determination read against the wrong repository could be
     corrected only to a claim you cannot support."""
     out = await _call(
-        monkeypatch, "record_default_branch_landing", slug="x", landing="unknown", evidence=""
+        monkeypatch,
+        "record_default_branch_landing",
+        github_repo=REPO,
+        landing="unknown",
+        evidence="",
     )
     assert out["default_branch_landing"] == "unknown"
     assert out["determined_at"] is None
@@ -489,7 +558,7 @@ async def test_a_determination_can_be_retracted_to_unknown(monkeypatch):
 
 
 @pytest.mark.parametrize("bad", ["not-a-slug", "https://github.com/", "   "])
-async def test_update_app_refuses_a_github_repo_the_fold_cannot_match(monkeypatch, bad):
+async def test_update_app_refuses_a_github_repo_the_lookup_cannot_match(monkeypatch, bad):
     out = await _call(monkeypatch, "update_app", slug="x", github_repo=bad)
     assert "github_repo must be" in out["error"]
 
@@ -499,18 +568,30 @@ async def test_update_app_accepts_a_canonical_slug(monkeypatch):
     assert out.get("updated") == ["github_repo"]
 
 
-def test_get_app_serves_unknown_not_null(monkeypatch):
+async def test_declaring_an_apps_repository_registers_it(monkeypatch):
+    """Otherwise an app the estate knows perfectly well answers `no_app_record`
+    — "never heard of this repository" — when the truth is `not_assessed`."""
+    _RecordingRepo.registered = []
+    await _call(monkeypatch, "update_app", slug="x", github_repo="AlobarQuest/brain")
+    assert _RecordingRepo.registered == ["AlobarQuest/brain"]
+
+
+async def test_updating_something_else_does_not_register_anything(monkeypatch):
+    _RecordingRepo.registered = []
+    await _call(monkeypatch, "update_app", slug="x", status="active")
+    assert _RecordingRepo.registered == []
+
+
+def test_get_app_serves_unknown_not_null():
     """The REST route argues unknown must appear on the wire as a value; the MCP
-    surface must not then serve a falsy null that invites `if not x: proceed`."""
+    surface must not then serve a falsy null that invites `if not x: proceed`.
+    An app with no github_repo has no repository, so it has no answer."""
     from src.brains.app.tools.apps import serialize_app_profile
 
     class _App:
         slug = name = "x"
         description = tech_stack = repo_path = deployment_url = github_repo = None
         environments = []
-        default_branch_landing = None
-        default_branch_landing_determined_at = None
-        default_branch_landing_evidence = None
         status = "active"
         tags = []
         onboarding_status = "pending"
@@ -518,70 +599,112 @@ def test_get_app_serves_unknown_not_null(monkeypatch):
 
     profile = serialize_app_profile(_App(), coverage={})
     assert profile["default_branch_landing"] == LANDING_UNKNOWN
+    assert profile["default_branch_landing_determined_at"] is None
+
+
+def test_get_app_reports_its_repositorys_determination():
+    from src.brains.app.tools.apps import serialize_app_profile
+
+    class _App:
+        slug = name = "app-brain"
+        description = tech_stack = repo_path = deployment_url = None
+        github_repo = BRAIN
+        environments = []
+        status = "active"
+        tags = []
+        onboarding_status = "complete"
+        last_onboarded_at = created_at = None
+
+    landing = aggregate_landing(BRAIN, _repository("redeploys"), BRAINS)
+    profile = serialize_app_profile(_App(), coverage={}, landing=landing)
+    assert profile["default_branch_landing"] == LANDING_REDEPLOYS
+    assert profile["default_branch_landing_evidence"] == "read the workflow"
 
 
 # ---------------------------------------------------------------------------
-# The determination file (backfill input)
+# The determination file — repositories with NO application
 # ---------------------------------------------------------------------------
 
 
 class TestDeterminationFile:
     @pytest.fixture
-    def apps(self):
-        from scripts.backfill_default_branch_landing import load_determination
+    def repositories(self):
+        from scripts.record_repository_landing import load_determination
 
         return load_determination()
 
-    def test_loads_and_validates(self, apps):
-        assert len(apps) == 25
+    def test_loads_and_validates(self, repositories):
+        """Only the app-less repositories live here; every repository that feeds
+        a registered app was backfilled from its app by migration 0006."""
+        assert len(repositories) == 2
 
-    def test_every_row_carries_evidence_naming_what_was_read(self, apps):
+    def test_every_row_carries_evidence_naming_what_was_read(self, repositories):
         """`"Read:" in e or "read" in e.lower()` would be the natural spelling and
         is worthless: the second clause subsumes the first, so it only enforces
         that the free text contains the substring "read" — which a repo named
         `threads` satisfies. Require the explicit clause."""
-        for row in apps:
-            assert row["landing"] in LANDING_VALUES, row["slug"]
-            assert "Read:" in row["evidence"], row["slug"]
+        for row in repositories:
+            assert row["landing"] in LANDING_VALUES, row["github_repo"]
+            assert "Read:" in row["evidence"], row["github_repo"]
 
-    def test_the_four_brain_apps_all_answer_redeploys(self, apps):
-        by_slug = {r["slug"]: r for r in apps}
-        for slug in ("app-brain", "infra-brain", "open-brain", "code-brain"):
-            assert by_slug[slug]["landing"] == LANDING_REDEPLOYS, slug
+    def test_the_two_factory_targetable_repositories(self, repositories):
+        by_repo = {r["github_repo"]: r for r in repositories}
+        assert by_repo["AlobarQuest/intent-packages"]["landing"] == LANDING_INERT
+        assert by_repo["AlobarQuest/project-standards"]["landing"] == LANDING_INERT
 
-    def test_the_two_proof_subjects(self, apps):
-        by_slug = {r["slug"]: r for r in apps}
-        assert by_slug["change-manager"]["landing"] == LANDING_REDEPLOYS
-        assert by_slug["orchestrator"]["landing"] == LANDING_INERT
+    def test_evidence_names_all_three_trigger_mechanisms(self, repositories):
+        """Reading CI alone gets 3 of 10 wrong (WS-P2.29). An `inert` determined
+        from one mechanism is an unfounded permission."""
+        for row in repositories:
+            e = row["evidence"].lower()
+            assert "workflow" in e, row["github_repo"]
+            assert "webhook" in e, row["github_repo"]
+            assert "pages" in e and "coolify" in e, row["github_repo"]
 
     def test_rejects_a_row_with_no_evidence(self, tmp_path):
-        from scripts.backfill_default_branch_landing import load_determination
+        from scripts.record_repository_landing import load_determination
 
         bad = tmp_path / "bad.json"
-        bad.write_text(json.dumps({"apps": [{"slug": "x", "landing": "inert", "evidence": " "}]}))
+        bad.write_text(
+            json.dumps(
+                {"repositories": [{"github_repo": "o/r", "landing": "inert", "evidence": " "}]}
+            )
+        )
         with pytest.raises(ValueError, match="evidence is required"):
             load_determination(str(bad))
 
     def test_rejects_an_out_of_vocabulary_landing(self, tmp_path):
-        from scripts.backfill_default_branch_landing import load_determination
+        from scripts.record_repository_landing import load_determination
 
         bad = tmp_path / "bad.json"
-        bad.write_text(json.dumps({"apps": [{"slug": "x", "landing": "maybe", "evidence": "e"}]}))
+        bad.write_text(
+            json.dumps(
+                {"repositories": [{"github_repo": "o/r", "landing": "maybe", "evidence": "e"}]}
+            )
+        )
         with pytest.raises(ValueError, match="landing must be one of"):
             load_determination(str(bad))
 
-    def test_every_declared_github_repo_is_canonical(self, apps):
-        """A gap-fill written in a non-canonical shape would make the app it
-        names invisible to its own repository's fold."""
-        for row in apps:
-            repo = row.get("github_repo")
-            if repo:
-                assert canonical_repo_slug(repo) == repo.lower(), row["slug"]
+    def test_rejects_a_reference_the_lookup_cannot_match(self, tmp_path):
+        from scripts.record_repository_landing import load_determination
 
-    def test_evidence_carries_no_credential_shaped_text(self, apps):
+        bad = tmp_path / "bad.json"
+        bad.write_text(
+            json.dumps(
+                {"repositories": [{"github_repo": "nope", "landing": "inert", "evidence": "e"}]}
+            )
+        )
+        with pytest.raises(ValueError, match="must be 'owner/repo'"):
+            load_determination(str(bad))
+
+    def test_every_declared_repository_is_canonical(self, repositories):
+        for row in repositories:
+            assert canonical_repo_slug(row["github_repo"]) == row["github_repo"].lower()
+
+    def test_evidence_carries_no_credential_shaped_text(self, repositories):
         """Evidence is unvalidated free text and is served to the READ-ONLY key,
         the estate's lowest-privilege credential. Nothing secret belongs in it."""
-        for row in apps:
+        for row in repositories:
             e = row["evidence"].lower()
             for banned in ("secret_github", "bearer ", "password", "token="):
-                assert banned not in e, f"{row['slug']}: evidence contains {banned!r}"
+                assert banned not in e, f"{row['github_repo']}: evidence contains {banned!r}"

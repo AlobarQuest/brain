@@ -68,8 +68,17 @@ def register_routes(app) -> None:
         coolify_app_uuid and fqdn describe the deploy target, which such a caller
         has no way to name. Matched case-insensitively.
 
-        Returns 200 with landing = 'redeploys' | 'inert' | 'unknown', plus the
-        per-app rows the answer was folded from. 400 when github_repo is absent.
+        Returns 200 with landing = 'redeploys' | 'inert' | 'unknown', the
+        determination's provenance, and the apps this repository feeds. 400 when
+        github_repo is absent.
+
+        The answer is now the REPOSITORY's recorded determination rather than a
+        fold over its apps, so it also resolves a repository the factory targets
+        with nothing deployed from it — `matched_apps: 0` with a real `landing`
+        is that case, and it was unreachable before. Every key of the previous
+        response is unchanged in name and meaning; `determined_at` and `evidence`
+        are additive, and carry the provenance for a repository that has no apps
+        to carry it.
 
         Never 404: 'unknown' is an answer and must appear on the wire as one. A
         404 would have to be mapped to unknown by every caller — the same

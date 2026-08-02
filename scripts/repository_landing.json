@@ -1,0 +1,27 @@
+{
+  "_readme": [
+    "Default-branch landing determinations for repositories that have NO application.",
+    "Every repository that feeds a registered app was backfilled into the repositories",
+    "table by migration 0006, from the per-app determination WS-P2.29 recorded. These",
+    "are the ones no app record could supply: repositories the factory can target and",
+    "nothing deploys from. Written through record_default_branch_landing by",
+    "scripts/record_repository_landing.py.",
+    "",
+    "A determination is made against all THREE trigger mechanisms, because no single",
+    "one of them can rule the answer out: a workflow step that calls the deploy",
+    "target, a repository webhook pointed at it, and the hosting platform's own git",
+    "integration. WS-P2.29 found that reading CI alone gets 3 of 10 wrong."
+  ],
+  "repositories": [
+    {
+      "github_repo": "AlobarQuest/intent-packages",
+      "landing": "inert",
+      "evidence": "Nothing deploys from this repository by any of the three trigger mechanisms, as of 2026-08-02. (1) Workflows: quality.yml and validate.yml are on push/pull_request but run lint, type-check, tests and package validation only; factory-runner-pilot.yml is workflow_dispatch, so merging never fires it. No step calls a deploy target. (2) Repository webhooks: zero. (3) Hosting-platform git integration: the account holds exactly two Cloudflare Pages projects (rental-investment-calculator, adjustright-photo-pro) and this is neither; no Coolify application or service on the prod or the dev instance references it. Read: all three workflow files, the repository webhook list, the Cloudflare Pages project list, and the Coolify applications and services tables on both instances."
+    },
+    {
+      "github_repo": "AlobarQuest/project-standards",
+      "landing": "inert",
+      "evidence": "Nothing deploys from this repository by any of the three trigger mechanisms, as of 2026-08-02. (1) Workflows: quality.yml only, on push/pull_request, running lint, type-check and tests. No step calls a deploy target. (2) Repository webhooks: zero. (3) Hosting-platform git integration: the account holds exactly two Cloudflare Pages projects (rental-investment-calculator, adjustright-photo-pro) and this is neither; no Coolify application or service on the prod or the dev instance references it. Read: the workflow file, the repository webhook list, the Cloudflare Pages project list, and the Coolify applications and services tables on both instances."
+    }
+  ]
+}
