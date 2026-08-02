@@ -1,0 +1,155 @@
+{
+  "_readme": [
+    "One-time backfill INPUT for apps.default_branch_landing, determined 2026-08-02 (WS-P2.29).",
+    "NOT a source of truth and nothing reads it at runtime: App Brain's own column is the record.",
+    "It exists so the determination is reviewable in the pull request and re-runnable, the same",
+    "status as the regexes in scripts/backfill_app_deployment_fields.py.",
+    "",
+    "landing: 'redeploys' = merging advances something already serving with no further human act.",
+    "         'inert'     = nothing already serving changes until a separate act.",
+    "There is no 'unknown' here on purpose — every one of the 25 registered apps was determined.",
+    "An app nobody assessed simply has no row, and holds NULL, which serves as 'unknown'.",
+    "",
+    "github_repo is set only where App Brain currently holds NULL and a real repository exists;",
+    "it is gap-fill, never an overwrite, matching sync_deployment_from_coolify.py's own policy.",
+    "",
+    "THREE INDEPENDENT MECHANISMS produce 'redeploys' in this estate, and reading CI finds only",
+    "the first: (1) a workflow step that calls the deploy target, (2) a repository webhook pointed",
+    "at the deploy target, (3) the hosting platform's own git integration, which needs no workflow",
+    "and no webhook in the repository at all."
+  ],
+  "apps": [
+    {
+      "slug": "adjustright-photo-pro",
+      "landing": "redeploys",
+      "evidence": "Cloudflare Pages project adjustright-photo-pro (serving dpp.devonwatkins.com): source github AlobarQuest/AdjustRight-Photo-Pro, production_branch main, deployments_enabled and production_deployments_enabled true; latest production deployment_trigger.type is github:push on main. No GitHub workflow performs any deploy — the platform's own git integration does. Read: Cloudflare Pages project config."
+    },
+    {
+      "slug": "agent-sites",
+      "github_repo": "AlobarQuest/agent-sites",
+      "landing": "redeploys",
+      "evidence": ".github/workflows/deploy.yml — on: push: branches: [main]; job step 'Trigger Coolify redeploy' curls secrets.COOLIFY_WEBHOOK_URL with COOLIFY_API_TOKEN. Read: the workflow file."
+    },
+    {
+      "slug": "alobar-id",
+      "landing": "inert",
+      "evidence": "Repository has no .github/workflows and no active GitHub webhook. Authentik runs as the Coolify compose service authentik-prod, which is not built from this repository. Read: repo workflows, repo webhooks, Coolify service list."
+    },
+    {
+      "slug": "app-brain",
+      "landing": "redeploys",
+      "evidence": "AlobarQuest/brain .github/workflows/ci.yml — on: push: branches: [main]; deploy job step 'Deploy brain apps' curls COOLIFY_WEBHOOK_URL for COOLIFY_APP_UUID_APP (Coolify app brain-app). Read: the workflow file."
+    },
+    {
+      "slug": "booking-assistant",
+      "landing": "redeploys",
+      "evidence": "Active GitHub repository webhook on AlobarQuest/booking-system -> http://178.156.247.239:8000/webhooks/source/github/events/manual, events [push]; the Coolify applications for branch master and preview both carry a manual_webhook_secret_github. NO workflow deploys — test.yml runs tests only, so reading CI alone gives the wrong answer. Read: repo webhooks, Coolify application fields, the workflow files."
+    },
+    {
+      "slug": "change-manager",
+      "landing": "redeploys",
+      "evidence": ".github/workflows/deploy.yml — on: push: branches: [main]; job step 'Trigger Coolify redeploy'. Confirmed empirically 2026-08-02: merging PR #40 fired a deploy run two seconds later. Read: the workflow file, the Actions run history."
+    },
+    {
+      "slug": "claude-octopus",
+      "landing": "inert",
+      "evidence": "A Claude Code plugin with no hosted environment and no deployment_url. test.yml and harden-selftest.yml run on push to main but only run tests; no webhook. Read: repo workflows, repo webhooks, App Brain deployment_url."
+    },
+    {
+      "slug": "code-brain",
+      "github_repo": "AlobarQuest/brain",
+      "landing": "redeploys",
+      "evidence": "AlobarQuest/brain .github/workflows/ci.yml deploy job, COOLIFY_APP_UUID_CODE (Coolify app brain-code). Its App Brain github_repo was NULL, so this app's answer was previously unreachable by repository — the fact for all four brains lives in one repository. Read: the workflow file."
+    },
+    {
+      "slug": "community-atlas",
+      "landing": "redeploys",
+      "evidence": ".github/workflows/deploy.yml — on: push: branches: [main, preview]; steps 'Trigger Coolify redeploy (main)' and '(preview)'. Deployed as the Coolify compose services community-atlas-prod / community-atlas-preview. Read: the workflow file, Coolify service list."
+    },
+    {
+      "slug": "contacts",
+      "landing": "redeploys",
+      "evidence": "Two independent mechanisms: .github/workflows/ci.yml is on: push: branches: [main] and waits for the Coolify deploy to become healthy, AND an active repository webhook -> http://coolify-1.devonwatkins.com/webhooks/source/github/events/manual, events [push], with manual_webhook_secret_github set on the Coolify application. Read: the workflow file, repo webhooks, Coolify application fields."
+    },
+    {
+      "slug": "dna-network",
+      "landing": "inert",
+      "evidence": "AlobarQuest/FacelessTT has no .github/workflows and no active repository webhook. The dev-Coolify (OrbStack) application 'FacelessTT Admin' has no manual_webhook_secret_github. Redeploy is a manual act. Read: repo workflows, repo webhooks, dev Coolify application fields."
+    },
+    {
+      "slug": "fub-voice-assistant",
+      "landing": "inert",
+      "evidence": "No GitHub repository (AlobarQuest/fub-voice-assistant is 404), no repo_path and no deployment_url in App Brain. Runs locally on the Mac Mini; there is nowhere for a commit to land. Read: GitHub API, App Brain record."
+    },
+    {
+      "slug": "imap-mcp-server",
+      "landing": "inert",
+      "evidence": "No .github/workflows and no active repository webhook; the Coolify application imap-mcp-server has no manual_webhook_secret_github. Coolify never learns about a push, so redeploy is a manual act. Read: repo workflows, repo webhooks, Coolify application fields."
+    },
+    {
+      "slug": "inbox-assistant",
+      "landing": "inert",
+      "evidence": "Archived. No GitHub repository (404), no deployment_url, nothing running. Read: GitHub API, App Brain record."
+    },
+    {
+      "slug": "infra-brain",
+      "landing": "redeploys",
+      "evidence": "AlobarQuest/brain .github/workflows/ci.yml deploy job, COOLIFY_APP_UUID_INFRA (Coolify app brain-infra), and the same workflow health-checks infra-brain.devonwatkins.com. This DIRECTLY CONTRADICTS its existing App Brain deployment chunk, which says 'No deployment needed' — that prose is false and is why the fact had to be determined rather than transcribed. Read: the workflow file."
+    },
+    {
+      "slug": "infraops-mcp-server",
+      "landing": "inert",
+      "evidence": ".github/workflows/build.yml is on: push: branches: [main] but runs npm ci, npm run build, a committed-dist freshness check and npm test — no deploy step. A stdio MCP server with no hosted environment and no deployment_url; no repository webhook. Read: the workflow file, repo webhooks, App Brain record."
+    },
+    {
+      "slug": "lifeops-portal",
+      "github_repo": "AlobarQuest/lifeops-portal",
+      "landing": "inert",
+      "evidence": "Archived: the GitHub repository is archived=true, so a push to it is not possible. portal.devonwatkins.com does not resolve and there is no Coolify application or service. Read: GitHub API, endpoint probe, Coolify inventory."
+    },
+    {
+      "slug": "omniapp",
+      "landing": "inert",
+      "evidence": "Archived. No GitHub repository (404); an iOS app with no hosted environment. Read: GitHub API, App Brain record."
+    },
+    {
+      "slug": "open-brain",
+      "landing": "redeploys",
+      "evidence": "AlobarQuest/brain .github/workflows/ci.yml deploy job, COOLIFY_APP_UUID_OPEN (Coolify app brain-open). Read: the workflow file."
+    },
+    {
+      "slug": "orchestrator",
+      "github_repo": "AlobarQuest/orchestrator",
+      "landing": "inert",
+      "evidence": "quality.yml runs on push but only lints, type-checks and tests; release-image.yml is workflow_dispatch only, so merging never fires it; attest-exit-criteria.yml and factory-runner-pilot.yml have no push trigger. No active repository webhook. The Coolify application orchestrator is a docker-image app (placeholder git_repository coollabsio/coolify) with no manual_webhook_secret_github — it pulls a pinned tag when a human points it at one. Read: all four workflow files, repo webhooks, Coolify application fields."
+    },
+    {
+      "slug": "real-estate-analyzer",
+      "landing": "inert",
+      "evidence": "The local repository at /Users/devon/Projects/RealEstateAnalyzer has NO git remote at all and no GitHub repository exists; no deployment_url and no Coolify application or service. Read: git remote -v, GitHub API, Coolify inventory."
+    },
+    {
+      "slug": "real-estate-engine",
+      "github_repo": "AlobarQuest/real-estate-engine",
+      "landing": "inert",
+      "evidence": "Retired 2026-06-16 and superseded. The GitHub repository is archived=true so a push is not possible; realestate.devonwatkins.com does not resolve; the Coolify app and DNS were torn down. Read: GitHub API, endpoint probe, Coolify inventory."
+    },
+    {
+      "slug": "todoist-mcp",
+      "github_repo": "AlobarQuest/todoist-mcp",
+      "landing": "inert",
+      "evidence": "The GitHub repository is archived=true so a push is not possible; todoist-mcp.devonwatkins.com does not resolve; there is no prod Coolify application or service for it. Read: GitHub API, endpoint probe, Coolify inventory."
+    },
+    {
+      "slug": "veritok",
+      "github_repo": "AlobarQuest/veritok",
+      "landing": "inert",
+      "evidence": "No .github/workflows and no active repository webhook; the Coolify application veritok-catcher, which deploys from this repository, has no manual_webhook_secret_github. Read: repo workflows, repo webhooks, Coolify application fields."
+    },
+    {
+      "slug": "watchtower",
+      "landing": "inert",
+      "evidence": "No .github/workflows and no active repository webhook; the dev-Coolify (OrbStack) application 'Watchtower' has no manual_webhook_secret_github. Read: repo workflows, repo webhooks, dev Coolify application fields."
+    }
+  ]
+}

@@ -7,6 +7,7 @@ No DB required — matches the mock-based style of tests/brains/test_app.py.
 
 import importlib.util
 import pathlib
+from datetime import datetime, timezone
 
 # The backfill script lives under scripts/ (not a package); load it by path.
 _SCRIPT = (
@@ -152,6 +153,9 @@ class TestSerializeAppProfile:
                 "coolify_app_uuid": None,
             },
         ]
+        default_branch_landing = "redeploys"
+        default_branch_landing_determined_at = datetime(2026, 8, 2, tzinfo=timezone.utc)
+        default_branch_landing_evidence = "Read: repo webhooks, Coolify application fields."
         status = "active"
         tags = ["fastapi"]
         onboarding_status = "complete"
@@ -164,6 +168,9 @@ class TestSerializeAppProfile:
         profile = serialize_app_profile(self._FakeApp(), coverage={"deployment": 2})
         assert profile["github_repo"] == "AlobarQuest/booking-system"
         assert profile["environments"] == self._FakeApp.environments
+        assert profile["default_branch_landing"] == "redeploys"
+        assert profile["default_branch_landing_determined_at"] == "2026-08-02T00:00:00+00:00"
+        assert "Read:" in profile["default_branch_landing_evidence"]
         # Existing contract keys remain present (additive, nothing removed).
         for key in (
             "slug",

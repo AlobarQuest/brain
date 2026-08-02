@@ -1,9 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.brains.app.models import App
+from src.brains.app.models import (
+    LANDING_INERT,
+    LANDING_REDEPLOYS,
+    LANDING_UNKNOWN,
+    App,
+)
 
 
 def normalize_host(value: str | None) -> str | None:
@@ -64,6 +69,42 @@ def match_environment(
     return None
 
 
+def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
+    """Fold every app fed by one repository into a single answer.
+
+    `rows` is the apps whose github_repo matches, each
+    {slug, default_branch_landing, determined_at, evidence}.
+
+    One repository can feed several running apps — AlobarQuest/brain deploys
+    app-brain, infra-brain, open-brain and code-brain from a single ci.yml — so
+    the question "does merging here change something already running?" is a fold
+    over all of them, not a per-app lookup. Asking one brain's slug alone would
+    answer for a quarter of what the merge actually moves.
+
+    Precedence is `redeploys` > `unknown` > `inert`, which is fail-closed in both
+    directions: one assessed redeploying app settles the answer whatever its
+    siblings hold, and `inert` requires that EVERY app fed by the repo was
+    assessed and came back inert. An unmatched repository is `unknown` — App
+    Brain not knowing about a repository is never evidence that merging to it is
+    safe.
+    """
+    values = [r.get("default_branch_landing") for r in rows]
+    if LANDING_REDEPLOYS in values:
+        landing, reason = LANDING_REDEPLOYS, None
+    elif not rows:
+        landing, reason = LANDING_UNKNOWN, "no_app_record"
+    elif all(v == LANDING_INERT for v in values):
+        landing, reason = LANDING_INERT, None
+    else:
+        landing, reason = LANDING_UNKNOWN, "not_assessed"
+    return {
+        "github_repo": github_repo,
+        "landing": landing,
+        "reason": reason,
+        "apps": sorted(rows, key=lambda r: r["slug"]),
+    }
+
+
 class AppRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -107,6 +148,43 @@ class AppRepository:
             {"github_repo": r.github_repo, "environments": r.environments} for r in result.all()
         ]
         return match_environment(rows, coolify_app_uuid=coolify_app_uuid, fqdn=fqdn)
+
+    async def resolve_default_branch_landing(self, github_repo: str) -> dict:
+        """Answer "does merging to this repository's default branch change
+        anything already running?" for a GitHub "owner/repo" slug.
+
+        Matched case-insensitively, in SQL: GitHub slugs are case-insensitive and
+        the estate stores both `AlobarQuest/Contacts` and
+        `alobarquest/community-atlas`, so an exact match silently misses. Unlike
+        resolve_environment this filters in the database — the predicate is a
+        plain equality that Postgres does correctly, with none of the URL-host
+        normalization that made the environment resolver a Python scan.
+        """
+        target = (github_repo or "").strip().lower()
+        if not target:
+            return aggregate_landing(github_repo, [])
+        result = await self.session.execute(
+            select(
+                App.slug,
+                App.default_branch_landing,
+                App.default_branch_landing_determined_at,
+                App.default_branch_landing_evidence,
+            ).where(func.lower(App.github_repo) == target)
+        )
+        rows = [
+            {
+                "slug": r.slug,
+                "default_branch_landing": r.default_branch_landing,
+                "determined_at": (
+                    r.default_branch_landing_determined_at.isoformat()
+                    if r.default_branch_landing_determined_at
+                    else None
+                ),
+                "evidence": r.default_branch_landing_evidence,
+            }
+            for r in result.all()
+        ]
+        return aggregate_landing(github_repo, rows)
 
     async def create_app(self, **kwargs) -> App:
         app = App(**kwargs)

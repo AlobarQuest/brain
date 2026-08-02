@@ -20,11 +20,25 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 
+def _matches(provided: str, key: str) -> bool:
+    """Constant-time compare, encoded to bytes first.
+
+    ``hmac.compare_digest`` raises TypeError on a str containing any character
+    above U+007F, and Starlette decodes headers as latin-1 — so comparing the raw
+    strings turns a non-ASCII ``x-brain-key`` from an unauthenticated caller into
+    an unhandled 500. Encoding both sides makes every input comparable; valid
+    keys are 64 hex characters and encode identically either way.
+    """
+    return hmac.compare_digest(provided.encode("utf-8"), key.encode("utf-8"))
+
+
 def make_auth_middleware(
     access_key: str,
     contributor_key: str | None = None,
     exact: tuple[str, ...] = ("/api/health",),
     prefixes: tuple[str, ...] = (),
+    read_key: str | None = None,
+    read_paths: tuple[str, ...] = (),
 ) -> type[BaseHTTPMiddleware]:
     """Return a configured auth-middleware class ready for ``app.add_middleware()``.
 
@@ -37,6 +51,17 @@ def make_auth_middleware(
                     ``/register`` in ``exact`` exempts ``/register`` but NOT ``/register/foo``.
         prefixes:   Tuple of path prefixes that bypass authentication via startswith.
                     ``/.well-known/`` in ``prefixes`` exempts any path starting with that string.
+        read_key:   Optional READ-ONLY secret. It authenticates GET requests to
+                    ``read_paths`` and nothing else — every other path and every
+                    other method is 401, including ``/mcp`` and therefore every
+                    write tool. When ``None`` (the default) it is inert and the
+                    middleware behaves exactly as it did before this parameter
+                    existed. This is the least privilege a consumer that only
+                    reads a REST fact can hold: ``contributor_key`` still reaches
+                    the MCP surface and can write knowledge.
+        read_paths: Tuple of paths (EXACT match) that ``read_key`` may GET. Empty
+                    means the read key can reach nothing, so a brain that
+                    declares no read surface cannot accidentally grant one.
 
     Returns:
         A ``BaseHTTPMiddleware`` subclass (not an instance) so that
@@ -55,12 +80,20 @@ def make_auth_middleware(
                 return await call_next(request)
 
             provided = request.headers.get("x-brain-key") or request.query_params.get("key")
-            if not provided or not any(hmac.compare_digest(provided, k) for k in valid_keys):
-                return JSONResponse(
-                    content={"error": "Invalid or missing access key"},
-                    status_code=401,
-                )
+            if provided:
+                if any(_matches(provided, k) for k in valid_keys):
+                    return await call_next(request)
+                if (
+                    read_key
+                    and request.method == "GET"
+                    and path in read_paths
+                    and _matches(provided, read_key)
+                ):
+                    return await call_next(request)
 
-            return await call_next(request)
+            return JSONResponse(
+                content={"error": "Invalid or missing access key"},
+                status_code=401,
+            )
 
     return BrainKeyMiddleware
