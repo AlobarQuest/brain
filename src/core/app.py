@@ -72,6 +72,8 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
             settings.contributor_key,
             brain.capabilities.auth_exact,
             brain.capabilities.auth_prefixes,
+            settings.read_key,
+            brain.capabilities.read_paths,
         )
     )
 
