@@ -43,7 +43,7 @@
     {
       "slug": "booking-assistant",
       "landing": "redeploys",
-      "evidence": "Active GitHub repository webhook on AlobarQuest/booking-system -> http://178.156.247.239:8000/webhooks/source/github/events/manual, events [push]; the Coolify applications for branch master and preview both carry a manual_webhook_secret_github. NO workflow deploys — test.yml runs tests only, so reading CI alone gives the wrong answer. Read: repo webhooks, Coolify application fields, the workflow files."
+      "evidence": "Active GitHub repository webhook on AlobarQuest/booking-system -> the Coolify manual git-provider webhook endpoint, events [push]; the Coolify applications for branch master and preview both have a git-provider webhook configured. NO workflow deploys — test.yml runs tests only, so reading CI alone gives the wrong answer. Read: repo webhooks, Coolify application webhook configuration, the workflow files."
     },
     {
       "slug": "change-manager",
@@ -69,12 +69,12 @@
     {
       "slug": "contacts",
       "landing": "redeploys",
-      "evidence": "Two independent mechanisms: .github/workflows/ci.yml is on: push: branches: [main] and waits for the Coolify deploy to become healthy, AND an active repository webhook -> http://coolify-1.devonwatkins.com/webhooks/source/github/events/manual, events [push], with manual_webhook_secret_github set on the Coolify application. Read: the workflow file, repo webhooks, Coolify application fields."
+      "evidence": "Two independent mechanisms: .github/workflows/ci.yml is on: push: branches: [main] and waits for the Coolify deploy to become healthy, AND an active repository webhook -> the Coolify manual git-provider webhook endpoint, events [push], and the Coolify application has a git-provider webhook configured. Read: the workflow file, repo webhooks, Coolify application webhook configuration."
     },
     {
       "slug": "dna-network",
       "landing": "inert",
-      "evidence": "AlobarQuest/FacelessTT has no .github/workflows and no active repository webhook. The dev-Coolify (OrbStack) application 'FacelessTT Admin' has no manual_webhook_secret_github. Redeploy is a manual act. Read: repo workflows, repo webhooks, dev Coolify application fields."
+      "evidence": "AlobarQuest/FacelessTT has no .github/workflows and no active repository webhook. The dev-Coolify (OrbStack) application 'FacelessTT Admin' has no git-provider webhook configured. Redeploy is a manual act. Read: repo workflows, repo webhooks, dev Coolify application webhook configuration."
     },
     {
       "slug": "fub-voice-assistant",
@@ -84,7 +84,7 @@
     {
       "slug": "imap-mcp-server",
       "landing": "inert",
-      "evidence": "No .github/workflows and no active repository webhook; the Coolify application imap-mcp-server has no manual_webhook_secret_github. Coolify never learns about a push, so redeploy is a manual act. Read: repo workflows, repo webhooks, Coolify application fields."
+      "evidence": "No .github/workflows and no active repository webhook; the Coolify application imap-mcp-server has no git-provider webhook configured. Coolify never learns about a push, so redeploy is a manual act. Read: repo workflows, repo webhooks, Coolify application webhook configuration."
     },
     {
       "slug": "inbox-assistant",
@@ -121,7 +121,7 @@
       "slug": "orchestrator",
       "github_repo": "AlobarQuest/orchestrator",
       "landing": "inert",
-      "evidence": "quality.yml runs on push but only lints, type-checks and tests; release-image.yml is workflow_dispatch only, so merging never fires it; attest-exit-criteria.yml and factory-runner-pilot.yml have no push trigger. No active repository webhook. The Coolify application orchestrator is a docker-image app (placeholder git_repository coollabsio/coolify) with no manual_webhook_secret_github — it pulls a pinned tag when a human points it at one. Read: all four workflow files, repo webhooks, Coolify application fields."
+      "evidence": "quality.yml runs on push but only lints, type-checks and tests; release-image.yml is workflow_dispatch only, so merging never fires it; attest-exit-criteria.yml and factory-runner-pilot.yml have no push trigger. No active repository webhook. The Coolify application orchestrator is a docker-image app (placeholder git_repository coollabsio/coolify) with no git-provider webhook configured — it pulls a pinned tag when a human points it at one. Read: all four workflow files, repo webhooks, Coolify application webhook configuration."
     },
     {
       "slug": "real-estate-analyzer",
@@ -144,12 +144,12 @@
       "slug": "veritok",
       "github_repo": "AlobarQuest/veritok",
       "landing": "inert",
-      "evidence": "No .github/workflows and no active repository webhook; the Coolify application veritok-catcher, which deploys from this repository, has no manual_webhook_secret_github. Read: repo workflows, repo webhooks, Coolify application fields."
+      "evidence": "No .github/workflows and no active repository webhook; the Coolify application veritok-catcher, which deploys from this repository, has no git-provider webhook configured. Read: repo workflows, repo webhooks, Coolify application webhook configuration."
     },
     {
       "slug": "watchtower",
       "landing": "inert",
-      "evidence": "No .github/workflows and no active repository webhook; the dev-Coolify (OrbStack) application 'Watchtower' has no manual_webhook_secret_github. Read: repo workflows, repo webhooks, dev Coolify application fields."
+      "evidence": "No .github/workflows and no active repository webhook; the dev-Coolify (OrbStack) application 'Watchtower' has no git-provider webhook configured. Read: repo workflows, repo webhooks, dev Coolify application webhook configuration."
     }
   ]
 }

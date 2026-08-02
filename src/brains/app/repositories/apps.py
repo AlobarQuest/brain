@@ -1,6 +1,7 @@
+import re
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.app.models import (
@@ -69,10 +70,54 @@ def match_environment(
     return None
 
 
-def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
-    """Fold every app fed by one repository into a single answer.
+def canonical_repo_slug(value: str | None) -> str | None:
+    """Reduce a stored or queried repository reference to a comparable
+    "owner/repo", lowercased. None/unparseable -> None.
 
-    `rows` is the apps whose github_repo matches, each
+    Matching on the raw column would make an app INVISIBLE to the fold whenever
+    its github_repo was stored in a different shape — `https://github.com/O/r`,
+    `O/r.git`, a stray space — and an app that is invisible to the fold cannot
+    make the answer `unknown`. It just silently is not counted, which turns a
+    repository that redeploys into one that reads `inert`. So both sides are
+    canonicalized, and update_app canonicalizes on the way in.
+
+    >>> canonical_repo_slug("https://github.com/AlobarQuest/Brain.git")
+    'alobarquest/brain'
+    >>> canonical_repo_slug("git@github.com:AlobarQuest/brain.git")
+    'alobarquest/brain'
+    """
+    if not value:
+        return None
+    s = value.strip().rstrip("/")
+    if not s:
+        return None
+    scp = re.match(r"^[\w.+-]+@[\w.-]+:(.+)$", s)
+    if scp:
+        s = scp.group(1)
+    else:
+        url = re.match(r"^[a-zA-Z][\w+.-]*://(?:[^@/]+@)?[^/]+/(.+)$", s)
+        if url:
+            s = url.group(1)
+    s = s.strip("/")
+    if s.endswith(".git"):
+        s = s[: -len(".git")]
+    parts = [p for p in s.split("/") if p]
+    if len(parts) < 2:
+        return None
+    # Both segments must look like a GitHub owner/repo name. Without this a
+    # string whose scheme we failed to strip still yields two segments —
+    # "https://github.com/" splits to ["https:", "github.com"] and would
+    # canonicalize to the nonsense slug "https:/github.com", which then passes
+    # validation and matches nothing.
+    if not all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", p) for p in parts[:2]):
+        return None
+    return f"{parts[0]}/{parts[1]}".lower()
+
+
+def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
+    """Fold every REGISTERED app fed by one repository into a single answer.
+
+    `rows` is the apps whose canonical github_repo matches, each
     {slug, default_branch_landing, determined_at, evidence}.
 
     One repository can feed several running apps — AlobarQuest/brain deploys
@@ -81,12 +126,18 @@ def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
     over all of them, not a per-app lookup. Asking one brain's slug alone would
     answer for a quarter of what the merge actually moves.
 
-    Precedence is `redeploys` > `unknown` > `inert`, which is fail-closed in both
-    directions: one assessed redeploying app settles the answer whatever its
-    siblings hold, and `inert` requires that EVERY app fed by the repo was
-    assessed and came back inert. An unmatched repository is `unknown` — App
-    Brain not knowing about a repository is never evidence that merging to it is
-    safe.
+    Precedence is `redeploys` > `unknown` > `inert`. One assessed redeploying app
+    settles the answer whatever its siblings hold, and `inert` requires that every
+    matched app was assessed and came back inert. An unmatched repository is
+    `unknown` — App Brain not knowing about a repository is never evidence that
+    merging to it is safe.
+
+    THE BOUND, stated exactly, because `inert` is the answer a caller reads as
+    permission: this fold ranges over apps REGISTERED IN APP BRAIN. It cannot see
+    an app that deploys from this repository and was never onboarded. `inert`
+    therefore means "every app the estate knows of that is fed by this repository
+    is inert", not "nothing anywhere redeploys". `matched_apps` is returned so a
+    caller never receives `inert` without also receiving its denominator.
     """
     values = [r.get("default_branch_landing") for r in rows]
     if LANDING_REDEPLOYS in values:
@@ -101,6 +152,7 @@ def aggregate_landing(github_repo: str, rows: list[dict]) -> dict:
         "github_repo": github_repo,
         "landing": landing,
         "reason": reason,
+        "matched_apps": len(rows),
         "apps": sorted(rows, key=lambda r: r["slug"]),
     }
 
@@ -153,23 +205,24 @@ class AppRepository:
         """Answer "does merging to this repository's default branch change
         anything already running?" for a GitHub "owner/repo" slug.
 
-        Matched case-insensitively, in SQL: GitHub slugs are case-insensitive and
-        the estate stores both `AlobarQuest/Contacts` and
-        `alobarquest/community-atlas`, so an exact match silently misses. Unlike
-        resolve_environment this filters in the database — the predicate is a
-        plain equality that Postgres does correctly, with none of the URL-host
-        normalization that made the environment resolver a Python scan.
+        Compared on the CANONICAL slug on both sides, in Python rather than SQL.
+        A SQL `lower(github_repo) = :target` misses every row stored in a
+        different shape (`https://github.com/O/r`, `O/r.git`), and a missed row
+        is not merely absent from the answer — it cannot make the answer
+        `unknown`, so a repository that redeploys reads `inert`. Same reasoning
+        as resolve_environment, and N is tiny (~25 apps).
         """
-        target = (github_repo or "").strip().lower()
+        target = canonical_repo_slug(github_repo)
         if not target:
             return aggregate_landing(github_repo, [])
         result = await self.session.execute(
             select(
                 App.slug,
+                App.github_repo,
                 App.default_branch_landing,
                 App.default_branch_landing_determined_at,
                 App.default_branch_landing_evidence,
-            ).where(func.lower(App.github_repo) == target)
+            )
         )
         rows = [
             {
@@ -183,6 +236,7 @@ class AppRepository:
                 "evidence": r.default_branch_landing_evidence,
             }
             for r in result.all()
+            if canonical_repo_slug(r.github_repo) == target
         ]
         return aggregate_landing(github_repo, rows)
 

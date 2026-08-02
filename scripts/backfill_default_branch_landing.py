@@ -39,8 +39,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.brains.app.models import LANDING_VALUES  # noqa: E402
+from src.brains.app.repositories.apps import canonical_repo_slug  # noqa: E402
+
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_branch_landing.json")
-LANDING_VALUES = ("redeploys", "inert")
 
 
 def load_determination(path: str = DATA) -> list[dict]:
@@ -125,8 +127,16 @@ def main() -> None:
             if not current.get("github_repo"):
                 call_tool(base_url, key, "update_app", {"slug": slug, "github_repo": repo})
                 filled += 1
-            elif current["github_repo"].lower() != repo.lower():
-                print(f"        [warn] github_repo already {current['github_repo']!r} — left alone")
+            elif canonical_repo_slug(current["github_repo"]) != canonical_repo_slug(repo):
+                # FATAL, not a warning. Recording the fact anyway would store a
+                # determination against an app keyed on a DIFFERENT repository
+                # than the one it was determined from — served on a key nobody
+                # will ask, while the key they do ask returns no_app_record. One
+                # indented warning in 25 lines of output is not a control.
+                raise SystemExit(
+                    f"{slug}: determination was made for {repo!r} but App Brain holds "
+                    f"{current['github_repo']!r}. Resolve the disagreement before recording."
+                )
         result = call_tool(
             base_url,
             key,

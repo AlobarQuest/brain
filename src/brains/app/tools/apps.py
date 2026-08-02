@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 
-from src.brains.app.models import LANDING_VALUES
-from src.brains.app.repositories.apps import AppRepository
+from src.brains.app.models import LANDING_UNKNOWN, LANDING_VALUES
+from src.brains.app.repositories.apps import AppRepository, canonical_repo_slug
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 from src.core.db import get_session_factory
@@ -27,7 +27,11 @@ def serialize_app_profile(app, coverage: dict) -> dict:
         "deployment_url": app.deployment_url,
         "github_repo": app.github_repo,
         "environments": app.environments,
-        "default_branch_landing": app.default_branch_landing,
+        # Projected to the string 'unknown', never served as null. A falsy value
+        # invites `if not landing: proceed`, which reads "nobody looked" as
+        # permission — the exact inference this record exists to remove. The REST
+        # route makes the same projection; the two surfaces must agree.
+        "default_branch_landing": app.default_branch_landing or LANDING_UNKNOWN,
         "default_branch_landing_determined_at": (
             app.default_branch_landing_determined_at.isoformat()
             if app.default_branch_landing_determined_at
@@ -106,6 +110,13 @@ def register_app_tools(mcp: FastMCP) -> None:
             return {"error": "invalid_params: no updatable fields provided"}
         if "status" in fields and fields["status"] not in APP_STATUSES:
             return {"error": f"invalid_params: status must be one of {', '.join(APP_STATUSES)}"}
+        if "github_repo" in fields:
+            # Refuse a shape the landing fold cannot match. An app stored as
+            # "https://github.com/O/r" is invisible to a query for "O/r", and an
+            # invisible app cannot make the answer 'unknown' — it silently is not
+            # counted, turning a repository that redeploys into one reading 'inert'.
+            if canonical_repo_slug(fields["github_repo"]) is None:
+                return {"error": "invalid_params: github_repo must be 'owner/repo'"}
 
         async with get_session_factory()() as session:
             repo = AppRepository(session)
@@ -131,6 +142,13 @@ def register_app_tools(mcp: FastMCP) -> None:
         separate act). An app nobody has assessed holds null, which reads as
         'unknown' and must never be read as 'inert'.
 
+        Passing landing='unknown' RETRACTS a determination, clearing all three
+        columns back to null. Without it the fail-closed state would be reachable
+        only until someone first wrote, so a determination later found to have
+        been read against the wrong repository could be corrected only to a claim
+        you cannot support. Retracting takes no evidence, because you are
+        withdrawing an assertion rather than making one.
+
         evidence must name what was read to reach the answer — the workflow file
         and its trigger, the git-provider webhook, or the hosting platform's
         build configuration. Three mechanisms produce 'redeploys' independently
@@ -144,19 +162,22 @@ def register_app_tools(mcp: FastMCP) -> None:
         value without the other two. The date is stamped here, server-side, so a
         determination cannot be back-dated by its author.
         """
-        if landing not in LANDING_VALUES:
-            return {"error": f"invalid_params: landing must be one of {', '.join(LANDING_VALUES)}"}
-        if not evidence or not evidence.strip():
-            return {"error": "invalid_params: evidence is required (what did you read?)"}
+        retracting = landing == LANDING_UNKNOWN
+        if not retracting:
+            if landing not in LANDING_VALUES:
+                allowed = ", ".join((*LANDING_VALUES, LANDING_UNKNOWN))
+                return {"error": f"invalid_params: landing must be one of {allowed}"}
+            if not evidence or not evidence.strip():
+                return {"error": "invalid_params: evidence is required (what did you read?)"}
 
-        determined_at = datetime.now(timezone.utc)
+        determined_at = None if retracting else datetime.now(timezone.utc)
         async with get_session_factory()() as session:
             repo = AppRepository(session)
             app = await repo.update_app(
                 slug,
-                default_branch_landing=landing,
+                default_branch_landing=None if retracting else landing,
                 default_branch_landing_determined_at=determined_at,
-                default_branch_landing_evidence=evidence.strip(),
+                default_branch_landing_evidence=None if retracting else evidence.strip(),
             )
             if not app:
                 return {"error": "not_found"}
@@ -164,6 +185,6 @@ def register_app_tools(mcp: FastMCP) -> None:
 
         return {
             "slug": slug,
-            "default_branch_landing": landing,
-            "determined_at": determined_at.isoformat(),
+            "default_branch_landing": LANDING_UNKNOWN if retracting else landing,
+            "determined_at": determined_at.isoformat() if determined_at else None,
         }

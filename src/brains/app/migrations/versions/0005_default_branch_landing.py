@@ -57,7 +57,7 @@ def upgrade() -> None:
         "ALTER TABLE apps ADD CONSTRAINT ck_apps_default_branch_landing_provenance "
         "CHECK (default_branch_landing IS NULL OR ("
         "default_branch_landing_determined_at IS NOT NULL "
-        "AND default_branch_landing_evidence IS NOT NULL))"
+        "AND btrim(default_branch_landing_evidence) <> ''))"
     )
 
 

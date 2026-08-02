@@ -21,7 +21,7 @@ from src.brains.app.models import (
     LANDING_VALUES,
     landing_in_clause,
 )
-from src.brains.app.repositories.apps import aggregate_landing
+from src.brains.app.repositories.apps import aggregate_landing, canonical_repo_slug
 
 KEY = "a" * 64
 READ_KEY = "b" * 64
@@ -148,6 +148,61 @@ def test_unknown_is_never_a_stored_value():
     assert LANDING_UNKNOWN not in LANDING_VALUES
 
 
+class TestCanonicalRepoSlug:
+    """A repository stored in a shape the fold cannot match is not merely absent
+    from the answer — it cannot make the answer 'unknown', so a repository that
+    redeploys silently reads 'inert'."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "AlobarQuest/brain",
+            "alobarquest/BRAIN",
+            "  AlobarQuest/brain  ",
+            "AlobarQuest/brain/",
+            "AlobarQuest/brain.git",
+            "https://github.com/AlobarQuest/brain",
+            "https://github.com/AlobarQuest/brain.git",
+            "git@github.com:AlobarQuest/brain.git",
+        ],
+    )
+    def test_every_stored_shape_canonicalizes_to_one_slug(self, raw):
+        assert canonical_repo_slug(raw) == "alobarquest/brain"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            None,
+            "",
+            "   ",
+            "no-slash",
+            "/",
+            "owner/",
+            # A scheme we failed to strip still splits into two segments, and
+            # would otherwise canonicalize to the nonsense slug "https:/github.com".
+            "https://github.com/",
+            "https://github.com",
+            "ftp://x/",
+        ],
+    )
+    def test_unparseable_is_none(self, raw):
+        assert canonical_repo_slug(raw) is None
+
+    def test_a_differently_shaped_sibling_is_still_folded_in(self):
+        """The fail-open the canonicalization exists to prevent: an app stored as
+        a full URL must not vanish from its repository's fold."""
+        rows = [_row("open-brain", "inert"), _row("app-brain", "redeploys")]
+        assert aggregate_landing(BRAIN, rows)["landing"] == LANDING_REDEPLOYS
+
+    def test_inert_is_never_returned_without_its_denominator(self):
+        """`inert` ranges over REGISTERED apps only, so a caller must always see
+        how many were actually matched."""
+        out = aggregate_landing("AlobarQuest/orchestrator", [_row("orchestrator", "inert")])
+        assert out["landing"] == LANDING_INERT
+        assert out["matched_apps"] == 1
+        assert aggregate_landing("AlobarQuest/nope", [])["matched_apps"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Route behavior — real app brain wired via create_app, repo mocked
 # ---------------------------------------------------------------------------
@@ -262,12 +317,16 @@ async def test_read_key_reaches_the_landing_route(env_setup, monkeypatch):
     assert resp.json()["landing"] == "inert"
 
 
-async def test_read_key_is_refused_on_the_mcp_surface(env_setup, monkeypatch):
-    """The whole point: a read key cannot reach any write tool."""
+@pytest.mark.parametrize("method,path", [("POST", "/mcp/"), ("GET", "/mcp/"), ("POST", "/mcp")])
+async def test_read_key_is_refused_on_the_mcp_surface(env_setup, monkeypatch, method, path):
+    """The whole point: a read key cannot reach any write tool. Covers GET as
+    well as POST — a POST-only test proves nothing about /mcp specifically,
+    because the read key cannot POST anywhere at all."""
     _patch_repo(monkeypatch, None)
     async with await _client(env_setup) as client:
-        resp = await client.post(
-            "/mcp/",
+        resp = await client.request(
+            method,
+            path,
             headers={"x-brain-key": READ_KEY, "Content-Type": "application/json"},
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         )
@@ -342,6 +401,126 @@ async def test_non_ascii_key_is_401_not_500(env_setup, monkeypatch, via):
 
 
 # ---------------------------------------------------------------------------
+# The write tool
+# ---------------------------------------------------------------------------
+
+
+class _RecordingRepo:
+    """Captures what update_app was asked to write, without a DB."""
+
+    last: dict = {}
+
+    def __init__(self, session):
+        pass
+
+    async def update_app(self, slug, **fields):
+        _RecordingRepo.last = {"slug": slug, **fields}
+        return type("A", (), {"slug": slug, "name": "n", "status": "active"})()
+
+
+class _CommitSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def commit(self):
+        return None
+
+
+async def _tools(monkeypatch):
+    from fastmcp import FastMCP
+
+    import src.brains.app.tools.apps as tools_mod
+
+    monkeypatch.setattr(tools_mod, "get_session_factory", lambda: lambda: _CommitSession())
+    monkeypatch.setattr(tools_mod, "AppRepository", _RecordingRepo)
+    mcp = FastMCP("t")
+    tools_mod.register_app_tools(mcp)
+    return {t.name: t for t in await mcp.list_tools()}
+
+
+async def _call(monkeypatch, name, **kwargs):
+    tools = await _tools(monkeypatch)
+    result = await tools[name].run(kwargs)
+    return json.loads(result.content[0].text)
+
+
+async def test_record_rejects_out_of_vocabulary_landing(monkeypatch):
+    out = await _call(
+        monkeypatch, "record_default_branch_landing", slug="x", landing="maybe", evidence="e"
+    )
+    assert "invalid_params" in out["error"]
+
+
+async def test_record_rejects_blank_evidence(monkeypatch):
+    out = await _call(
+        monkeypatch, "record_default_branch_landing", slug="x", landing="inert", evidence="   "
+    )
+    assert "evidence is required" in out["error"]
+
+
+async def test_record_stamps_determined_at_server_side(monkeypatch):
+    out = await _call(
+        monkeypatch,
+        "record_default_branch_landing",
+        slug="x",
+        landing="redeploys",
+        evidence="Read: the workflow file.",
+    )
+    assert out["default_branch_landing"] == "redeploys"
+    assert _RecordingRepo.last["default_branch_landing_determined_at"] is not None
+    assert _RecordingRepo.last["default_branch_landing_evidence"] == "Read: the workflow file."
+
+
+async def test_a_determination_can_be_retracted_to_unknown(monkeypatch):
+    """Without this the fail-closed state is reachable only until someone first
+    writes, so a determination read against the wrong repository could be
+    corrected only to a claim you cannot support."""
+    out = await _call(
+        monkeypatch, "record_default_branch_landing", slug="x", landing="unknown", evidence=""
+    )
+    assert out["default_branch_landing"] == "unknown"
+    assert out["determined_at"] is None
+    assert _RecordingRepo.last["default_branch_landing"] is None
+    assert _RecordingRepo.last["default_branch_landing_determined_at"] is None
+    assert _RecordingRepo.last["default_branch_landing_evidence"] is None
+
+
+@pytest.mark.parametrize("bad", ["not-a-slug", "https://github.com/", "   "])
+async def test_update_app_refuses_a_github_repo_the_fold_cannot_match(monkeypatch, bad):
+    out = await _call(monkeypatch, "update_app", slug="x", github_repo=bad)
+    assert "github_repo must be" in out["error"]
+
+
+async def test_update_app_accepts_a_canonical_slug(monkeypatch):
+    out = await _call(monkeypatch, "update_app", slug="x", github_repo="AlobarQuest/brain")
+    assert out.get("updated") == ["github_repo"]
+
+
+def test_get_app_serves_unknown_not_null(monkeypatch):
+    """The REST route argues unknown must appear on the wire as a value; the MCP
+    surface must not then serve a falsy null that invites `if not x: proceed`."""
+    from src.brains.app.tools.apps import serialize_app_profile
+
+    class _App:
+        slug = name = "x"
+        description = tech_stack = repo_path = deployment_url = github_repo = None
+        environments = []
+        default_branch_landing = None
+        default_branch_landing_determined_at = None
+        default_branch_landing_evidence = None
+        status = "active"
+        tags = []
+        onboarding_status = "pending"
+        last_onboarded_at = created_at = None
+
+    profile = serialize_app_profile(_App(), coverage={})
+    assert profile["default_branch_landing"] == LANDING_UNKNOWN
+
+
+# ---------------------------------------------------------------------------
 # The determination file (backfill input)
 # ---------------------------------------------------------------------------
 
@@ -357,9 +536,13 @@ class TestDeterminationFile:
         assert len(apps) == 25
 
     def test_every_row_carries_evidence_naming_what_was_read(self, apps):
+        """`"Read:" in e or "read" in e.lower()` would be the natural spelling and
+        is worthless: the second clause subsumes the first, so it only enforces
+        that the free text contains the substring "read" — which a repo named
+        `threads` satisfies. Require the explicit clause."""
         for row in apps:
             assert row["landing"] in LANDING_VALUES, row["slug"]
-            assert "Read:" in row["evidence"] or "read" in row["evidence"].lower(), row["slug"]
+            assert "Read:" in row["evidence"], row["slug"]
 
     def test_the_four_brain_apps_all_answer_redeploys(self, apps):
         by_slug = {r["slug"]: r for r in apps}
@@ -386,3 +569,19 @@ class TestDeterminationFile:
         bad.write_text(json.dumps({"apps": [{"slug": "x", "landing": "maybe", "evidence": "e"}]}))
         with pytest.raises(ValueError, match="landing must be one of"):
             load_determination(str(bad))
+
+    def test_every_declared_github_repo_is_canonical(self, apps):
+        """A gap-fill written in a non-canonical shape would make the app it
+        names invisible to its own repository's fold."""
+        for row in apps:
+            repo = row.get("github_repo")
+            if repo:
+                assert canonical_repo_slug(repo) == repo.lower(), row["slug"]
+
+    def test_evidence_carries_no_credential_shaped_text(self, apps):
+        """Evidence is unvalidated free text and is served to the READ-ONLY key,
+        the estate's lowest-privilege credential. Nothing secret belongs in it."""
+        for row in apps:
+            e = row["evidence"].lower()
+            for banned in ("secret_github", "bearer ", "password", "token="):
+                assert banned not in e, f"{row['slug']}: evidence contains {banned!r}"
