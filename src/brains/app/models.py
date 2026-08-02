@@ -35,12 +35,17 @@ def landing_in_clause() -> str:
     return f"default_branch_landing IN ({values})"
 
 
-class App(Base):
-    __tablename__ = "apps"
-    __table_args__ = (
+def landing_check_constraints(table: str) -> tuple[CheckConstraint, ...]:
+    """The two CHECKs that make a landing value legible and attributable.
+
+    Shared by `apps` and `repositories` because the fact means the same thing on
+    both while the move is in flight, and a constraint that exists on only one of
+    two tables holding one fact is a gap, not a saving.
+    """
+    return (
         CheckConstraint(
             f"default_branch_landing IS NULL OR {landing_in_clause()}",
-            name="ck_apps_default_branch_landing",
+            name=f"ck_{table}_default_branch_landing",
         ),
         # The fact is not assertable without its provenance. A value with no
         # determination date and no evidence is an unattributable claim, and
@@ -50,9 +55,66 @@ class App(Base):
             "default_branch_landing IS NULL OR ("
             "default_branch_landing_determined_at IS NOT NULL "
             "AND btrim(default_branch_landing_evidence) <> '')",
-            name="ck_apps_default_branch_landing_provenance",
+            name=f"ck_{table}_default_branch_landing_provenance",
         ),
     )
+
+
+# A repositories.canonical_slug is storable only in the one shape the read path
+# looks up. Mirrors canonical_repo_slug's output; migration 0006 holds a frozen
+# copy and tests/brains/test_repositories.py pins the two in sync.
+CANONICAL_SLUG_PATTERN = r"^([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)(?:/|$)"
+
+
+class Repository(Base):
+    """A repository the estate reasons about — the subject of "does merging to
+    the default branch change anything already running?".
+
+    Distinct from an App because the factory can target a repository that
+    deploys nothing (`intent-packages`, `project-standards`), and because one
+    repository can feed several running apps (`AlobarQuest/brain` feeds four).
+    The question is asked of the repository in both cases, so the answer lives
+    here rather than being duplicated across, or missing from, the apps.
+
+    A row may exist with no application: that IS the factory-targetable,
+    not-deployed notion. Registering a repository is how the estate declares it
+    a subject it will answer for; a repository with no row is `unknown`.
+    """
+
+    __tablename__ = "repositories"
+    __table_args__ = (
+        *landing_check_constraints("repositories"),
+        CheckConstraint(
+            "canonical_slug = lower(canonical_slug) "
+            f"AND canonical_slug ~ '{CANONICAL_SLUG_PATTERN}'",
+            name="ck_repositories_canonical_slug",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    # The lookup key: canonical_repo_slug() output, e.g. 'alobarquest/brain'.
+    canonical_slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # As the estate writes it, e.g. 'AlobarQuest/brain'. Display only — never
+    # matched on, because the same repository is stored in several cases.
+    github_repo: Mapped[str] = mapped_column(Text, nullable=False)
+    default_branch_landing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_branch_landing_determined_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    default_branch_landing_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class App(Base):
+    __tablename__ = "apps"
+    __table_args__ = landing_check_constraints("apps")
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
