@@ -10,9 +10,9 @@
 #
 # These secrets are provisioned at cutover (Task 17). The build-and-push and
 # deploy jobs are guarded to main-push only, so this workflow is safe to merge
-# on a PR before secrets exist. A brain whose UUID secret is empty is skipped in
-# both the deploy and health-check steps, so adding a new brain never breaks the
-# others' pipeline before its infra is provisioned.
+# on a PR before secrets exist. A brain whose UUID secret is empty is skipped by
+# both the deploy step and the revision check below, so adding a new brain never
+# breaks the others' pipeline before its infra is provisioned.
 
 name: CI
 
@@ -69,6 +69,10 @@ jobs:
         with:
           context: .
           push: true
+          # Carried into the image's environment and reported by /api/health, so the
+          # deploy job below can tell the new container from the one it replaced.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -102,34 +106,89 @@ jobs:
               -H "Authorization: Bearer ${API_TOKEN}"
           done
 
-      - name: Health-check brain apps
+      # The step above succeeds the moment Coolify ACCEPTS each webhook — it says nothing
+      # about whether a build finished, a container started, or the app came back.
+      # Polling for `status == "ok"` does not fix that either: Coolify's redeploy is a
+      # ROLLING update, so the OLD container answers the public domain throughout the
+      # swap and a liveness poll returns 200 the whole time, whether or not the new image
+      # ever ran. Measured on run 31317272047 (2026-08-09): all four brains reported
+      # "healthy on attempt 1" thirty seconds after the webhooks, answered by the
+      # containers that were already running.
+      #
+      # So the check is on the REVISION: it waits until every brain THIS run deployed
+      # reports the commit just built. One image serves all four, so all four report the
+      # same revision — each is still checked, because a per-app webhook can fail while
+      # its siblings succeed, and that is the failure this step exists to catch. A brain
+      # with no UUID secret was never triggered, keeps its old image and would never
+      # report the new revision, so it is excluded rather than waited on.
+      - name: Verify every deployed brain is serving the new revision
         env:
+          EXPECTED: ${{ github.sha }}
+          # A knob only so the timeout can be demonstrated in seconds instead of ten
+          # minutes: a poll never seen to fail proves nothing. Production value is 600.
+          DEADLINE_SECONDS: 600
           UUID_INFRA: ${{ secrets.COOLIFY_APP_UUID_INFRA }}
           UUID_OPEN: ${{ secrets.COOLIFY_APP_UUID_OPEN }}
           UUID_APP: ${{ secrets.COOLIFY_APP_UUID_APP }}
           UUID_CODE: ${{ secrets.COOLIFY_APP_UUID_CODE }}
         run: |
-          echo "Waiting 30s for deployments to start..."
-          sleep 30
+          set -euo pipefail
+
+          # An empty expectation would match every unreadable response and pass
+          # instantly — the poll-that-compares-nothing this step exists not to be.
+          if [ -z "${EXPECTED}" ]; then
+            echo "[FAIL] no expected revision was supplied; refusing to report success."
+            exit 1
+          fi
+
+          pending=""
           for entry in "infra:${UUID_INFRA}" "open:${UUID_OPEN}" "app:${UUID_APP}" "code:${UUID_CODE}"; do
             name="${entry%%:*}"
             uuid="${entry##*:}"
             if [ -z "${uuid}" ]; then
-              echo "Skipping ${name}-brain health check — not deployed by this pipeline."
+              echo "Skipping ${name}-brain — not deployed by this pipeline."
               continue
             fi
-            domain="${name}-brain.devonwatkins.com"
-            echo "Polling https://${domain}/api/health ..."
-            for i in 1 2 3 4 5; do
-              if curl -sf "https://${domain}/api/health" > /dev/null 2>&1; then
-                echo "  [OK] ${name}-brain healthy on attempt ${i}"
-                break
-              fi
-              if [ "${i}" -eq 5 ]; then
-                echo "  [FAIL] ${name}-brain did not become healthy after 5 attempts"
-                exit 1
-              fi
-              echo "  Attempt ${i} failed, waiting 15s..."
-              sleep 15
-            done
+            pending="${pending}${name} "
           done
+          if [ -z "${pending}" ]; then
+            echo "No brain was deployed by this run; there is nothing to verify."
+            exit 0
+          fi
+
+          echo "Waiting for ${EXPECTED} on: ${pending}"
+          deadline=$(( SECONDS + DEADLINE_SECONDS ))
+          while true; do
+            waiting=""
+            for name in ${pending}; do
+              body=$(curl -sf --max-time 10 "https://${name}-brain.devonwatkins.com/api/health" || true)
+              seen=$(printf '%s' "${body}" | python3 -c \
+                'import json,sys; print(json.load(sys.stdin).get("revision",""))' 2>/dev/null || true)
+              if [ -n "${seen}" ] && [ "${seen}" = "${EXPECTED}" ]; then
+                echo "  [OK] ${name}-brain is serving ${EXPECTED}"
+              else
+                # An empty body and a body with no revision field read the same to the
+                # comparison and mean different things to whoever reads this log: down,
+                # versus still serving an image built before /api/health reported one.
+                if [ -z "${body}" ]; then
+                  label="<unreachable>"
+                else
+                  label="${seen:-<no revision reported>}"
+                fi
+                echo "  ${name}-brain is serving '${label}', waiting for ${EXPECTED}..."
+                waiting="${waiting}${name} "
+              fi
+            done
+            pending="${waiting}"
+            if [ -z "${pending}" ]; then
+              break
+            fi
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "[FAIL] after ${DEADLINE_SECONDS}s these brains are not serving ${EXPECTED}: ${pending}"
+              echo "       They may still be serving the previous build, or may be down."
+              echo "       Check the Coolify deployment log before merging anything else."
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "[OK] every brain deployed by this run is serving ${EXPECTED}"

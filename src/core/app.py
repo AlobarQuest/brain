@@ -11,6 +11,7 @@ Key differences vs. infra-brain:
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 
 import sqlalchemy
@@ -93,15 +94,27 @@ def create_app(brain: BrainModule | None = None) -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> Response:
-        """DB-aware health check.  In allowlist → no auth required."""
+        """DB-aware health check, plus WHICH build is answering.
+
+        In allowlist → no auth required.
+
+        The revision is what makes a post-deploy check able to fail. Coolify serves the
+        old container throughout a rolling swap, so a poll for `status == "ok"` alone
+        returns 200 the entire time and passes whether or not the new image ever
+        started. `ci.yml` polls until every brain it deployed reports the commit it just
+        built. The field name matches change-manager's, so one reader works for both.
+
+        Unset outside a built image (local runs, tests), where there is no revision.
+        """
         try:
             async with engine.begin() as conn:
                 await conn.execute(sqlalchemy.text("SELECT 1"))
             status, code = "ok", 200
         except Exception:
             status, code = "degraded", 503
+        revision = os.environ.get("GIT_SHA", "unknown")
         return Response(
-            content=json.dumps({"status": status}),
+            content=json.dumps({"status": status, "revision": revision}),
             status_code=code,
             media_type="application/json",
         )
