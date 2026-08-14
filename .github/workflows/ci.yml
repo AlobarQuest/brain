@@ -22,6 +22,14 @@ on:
   pull_request:
     branches: [main]
 
+# One run per ref at a time. Two merges landing inside Coolify's swap window would
+# otherwise both deploy the same moving `:latest` tag and the earlier run would wait
+# out its full deadline for a revision that had already been replaced — a red job
+# reporting a rollout that in fact succeeded, just not with its own commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   IMAGE_NAME: ghcr.io/alobarquest/brain
 
@@ -151,9 +159,14 @@ jobs:
             fi
             pending="${pending}${name} "
           done
+          # The one path through this step that could not fail. A main push that
+          # deploys nothing is how main and production diverge silently, which is the
+          # whole failure this step exists to catch — so an empty subject list is a
+          # missing-secrets alarm, not a quiet success.
           if [ -z "${pending}" ]; then
-            echo "No brain was deployed by this run; there is nothing to verify."
-            exit 0
+            echo "[FAIL] no COOLIFY_APP_UUID_* secret is set, so this push deployed"
+            echo "       nothing and production is not serving ${EXPECTED}."
+            exit 1
           fi
 
           echo "Waiting for ${EXPECTED} on: ${pending}"
@@ -161,19 +174,34 @@ jobs:
           while true; do
             waiting=""
             for name in ${pending}; do
-              body=$(curl -sf --max-time 10 "https://${name}-brain.devonwatkins.com/api/health" || true)
-              seen=$(printf '%s' "${body}" | python3 -c \
-                'import json,sys; print(json.load(sys.stdin).get("revision",""))' 2>/dev/null || true)
-              if [ -n "${seen}" ] && [ "${seen}" = "${EXPECTED}" ]; then
+              # No -f: /api/health answers 503 when the database is unreachable, and
+              # that body still names the revision. Discarding it would label a brain
+              # that HAS swapped to the new image `<unreachable>` and send whoever
+              # reads this to the Coolify log for a deployment that worked.
+              body=$(curl -s --max-time 10 "https://${name}-brain.devonwatkins.com/api/health" || true)
+              fields=$(printf '%s' "${body}" | python3 -c \
+                'import json,sys; d=json.load(sys.stdin); print(d.get("revision","") + "|" + d.get("status",""))' \
+                2>/dev/null || true)
+              seen="${fields%%|*}"
+              state="${fields#*|}"
+              # Both terms, because either alone passes something it should not: the
+              # revision alone accepts a degraded brain, the status alone accepts the
+              # container this deployment was supposed to replace.
+              if [ "${seen}" = "${EXPECTED}" ] && [ "${state}" = "ok" ]; then
                 echo "  [OK] ${name}-brain is serving ${EXPECTED}"
               else
-                # An empty body and a body with no revision field read the same to the
-                # comparison and mean different things to whoever reads this log: down,
-                # versus still serving an image built before /api/health reported one.
+                # Four distinct answers, because they send whoever reads this log to
+                # four different places.
                 if [ -z "${body}" ]; then
-                  label="<unreachable>"
+                  label="<no answer>"                    # down, DNS, TLS
+                elif [ -z "${fields}" ]; then
+                  label="<not a health response>"        # something else answered
+                elif [ -z "${seen}" ]; then
+                  label="<no revision reported>"         # ours, image predates this
+                elif [ "${state}" != "ok" ]; then
+                  label="${seen} but ${state}"           # ours, new image, unhealthy
                 else
-                  label="${seen:-<no revision reported>}"
+                  label="${seen}"                        # ours, a different build
                 fi
                 echo "  ${name}-brain is serving '${label}', waiting for ${EXPECTED}..."
                 waiting="${waiting}${name} "
@@ -185,8 +213,9 @@ jobs:
             fi
             if [ "${SECONDS}" -ge "${deadline}" ]; then
               echo "[FAIL] after ${DEADLINE_SECONDS}s these brains are not serving ${EXPECTED}: ${pending}"
-              echo "       They may still be serving the previous build, or may be down."
-              echo "       Check the Coolify deployment log before merging anything else."
+              echo "       Read the last line printed for each above: it says whether the"
+              echo "       brain never answered, is still on the previous build, or is on"
+              echo "       this build but unhealthy. Only the first two are Coolify's."
               exit 1
             fi
             sleep 15
