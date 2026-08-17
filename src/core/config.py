@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     brain_type: BrainType
     mcp_access_key: str
     contributor_key: str | None = None
+    # Read-only secret: GETs to the brain's declared read paths, nothing else.
+    # Optional and inert when unset.
+    read_key: str | None = None
     log_level: str = "INFO"
     app_env: str = "production"
     port: int = 8000
@@ -32,7 +35,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
     onboard_concurrency: int = 6
 
-    @field_validator("mcp_access_key", "contributor_key")
+    @field_validator("mcp_access_key", "contributor_key", "read_key")
     @classmethod
     def _hex64(cls, v: str | None, info) -> str | None:
         if v is not None and not _HEX64.match(v):
@@ -45,6 +48,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "contributor_key must not equal mcp_access_key "
                 "(this would let every contributor act as approver)"
+            )
+        # A read_key equal to either of the others silently promotes the
+        # read-only consumer to that key's privileges — the same failure the
+        # contributor/approver check exists to stop, one rung lower.
+        if self.read_key is not None and self.read_key in (
+            self.mcp_access_key,
+            self.contributor_key,
+        ):
+            raise ValueError(
+                "read_key must differ from mcp_access_key and contributor_key "
+                "(this would grant the read-only consumer write access)"
             )
         return self
 
