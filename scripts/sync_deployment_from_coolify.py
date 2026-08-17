@@ -219,7 +219,18 @@ def map_coolify_to_app(
 
 
 def _bws_get(uuid: str) -> str:
-    out = subprocess.run(["bws", "secret", "get", uuid], capture_output=True, text=True, timeout=30)
+    # `--color no` is REQUIRED, not cosmetic. bws 2.0.0 emits ANSI escapes into
+    # stdout even when stdout is not a TTY, so json.loads() fails on byte 0 with
+    # "Expecting value" and the run dies before it reaches Coolify at all. It
+    # honours neither NO_COLOR nor the absence of a terminal; only this flag, and
+    # only before the subcommand. Symptom is a JSONDecodeError with no mention of
+    # colour anywhere in it.
+    out = subprocess.run(
+        ["bws", "--color", "no", "secret", "get", uuid],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     if out.returncode != 0:
         raise SystemExit(f"bws secret get {uuid} failed: {out.stderr.strip()}")
     return json.loads(out.stdout)["value"]

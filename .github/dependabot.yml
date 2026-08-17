@@ -1,3 +1,4 @@
+# code-standards:managed:start — everything down to :end is replaced by `code-standards sync`.
 # code-standards vendored Dependabot config (generated from the repo's
 # ecosystems). Edit upstream and `code-standards sync`. Updates arrive as PRs
 # your CI gates — nothing is auto-merged. github-actions is intentionally
@@ -9,3 +10,4 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+# code-standards:managed:end — content OUTSIDE these markers is yours and is preserved. Delete both markers to own the whole file: sync then writes nothing here and says so every run.

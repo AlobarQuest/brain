@@ -1,3 +1,4 @@
+# code-standards:managed:start — everything down to :end is replaced by `code-standards sync`.
 # code-standards GitHub Actions workflow (vendored).
 # Destination: .github/workflows/quality.yml
 # Edit upstream and `code-standards sync`.
@@ -123,7 +124,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Run full quality check
-        # `make check` runs ruff, pyright, eslint, prettier, shellcheck, and pytest.
-        # Each block is gated on its language marker and each tool is command -v
-        # guarded, so absent toolchains degrade gracefully.
+        # `make check` runs ruff, pyright, eslint, prettier, shellcheck, pytest,
+        # and the repo's npm `test` script. Each block is gated on its language
+        # marker, so a toolchain the repo does not declare never runs — but
+        # within a language it DOES declare, a missing tool is a hard error, not
+        # a skip (WS-P2.24). That is why every install step above matters: if a
+        # repo's tools live in `[project.optional-dependencies]` rather than
+        # `[dependency-groups]`, the installer above will not put them in place
+        # and this step now fails loudly instead of going green having run nothing.
         run: make check
+# code-standards:managed:end — content OUTSIDE these markers is yours and is preserved. Delete both markers to own the whole file: sync then writes nothing here and says so every run.

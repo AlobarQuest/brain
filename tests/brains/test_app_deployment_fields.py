@@ -13,6 +13,7 @@ _SCRIPT = (
     pathlib.Path(__file__).resolve().parents[2] / "scripts" / "backfill_app_deployment_fields.py"
 )
 _spec = importlib.util.spec_from_file_location("backfill_app_deployment_fields", _SCRIPT)
+assert _spec is not None and _spec.loader is not None
 backfill = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(backfill)
 
@@ -161,9 +162,21 @@ class TestSerializeAppProfile:
     def test_contract_includes_new_fields(self):
         from src.brains.app.tools.apps import serialize_app_profile
 
-        profile = serialize_app_profile(self._FakeApp(), coverage={"deployment": 2})
+        # The landing keys now report the app's REPOSITORY's determination,
+        # passed in by get_app; the profile no longer reads it off the app row.
+        landing = {
+            "landing": "redeploys",
+            "determined_at": "2026-08-02T00:00:00+00:00",
+            "evidence": "Read: repo webhooks, Coolify application fields.",
+        }
+        profile = serialize_app_profile(
+            self._FakeApp(), coverage={"deployment": 2}, landing=landing
+        )
         assert profile["github_repo"] == "AlobarQuest/booking-system"
         assert profile["environments"] == self._FakeApp.environments
+        assert profile["default_branch_landing"] == "redeploys"
+        assert profile["default_branch_landing_determined_at"] == "2026-08-02T00:00:00+00:00"
+        assert "Read:" in profile["default_branch_landing_evidence"]
         # Existing contract keys remain present (additive, nothing removed).
         for key in (
             "slug",
