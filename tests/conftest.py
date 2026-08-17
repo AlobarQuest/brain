@@ -12,6 +12,8 @@ import pytest
 _BRAIN_ENV_VARS = [
     "BRAIN_TYPE",
     "MCP_ACCESS_KEY",
+    "CONTRIBUTOR_KEY",
+    "READ_KEY",
     "OPENROUTER_API_KEY",
     "POSTGRES_HOST",
     "POSTGRES_PORT",

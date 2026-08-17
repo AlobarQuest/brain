@@ -53,6 +53,8 @@ EXPECTED_TOOLS = {
     "delete_knowledge",
     "onboard_app",
     "onboard_status",
+    "list_repositories",
+    "record_default_branch_landing",
     # governance
     "approve",
     "reject",
