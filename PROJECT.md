@@ -12,14 +12,30 @@ foundation_contract: 1
 applicable_standards:
   project: '1.0'
   security: '1.0'
-  code: '1.0'
+  code: '1.1'
   infra: null
 required_checks:
 - id: quality
   executor: github-actions:quality.yml
 - id: ci
   executor: github-actions:ci.yml
-coolify_resources: [brain-app, brain-code, brain-infra, brain-open, brain-app-db, brain-code-db, brain-infra-db, brain-open-db, aymdec0jxuaw2slzcs6nhdmp, svbkhx455u1fdvev0k840vse, m10p29dq7aahed7ssi06fnwu, abvedgcsk6a8a2cva5n87jw4, x1rt6fvevdzmkp34a8wprl76, wvnxvjhsblyiosiddnvaghmp, dt6exe82vfmc41cg8sx64q4a, jsvdokywdnwhxxszrq5xavuk]
+coolify_resources:
+- brain-app
+- brain-code
+- brain-infra
+- brain-open
+- brain-app-db
+- brain-code-db
+- brain-infra-db
+- brain-open-db
+- aymdec0jxuaw2slzcs6nhdmp
+- svbkhx455u1fdvev0k840vse
+- m10p29dq7aahed7ssi06fnwu
+- abvedgcsk6a8a2cva5n87jw4
+- x1rt6fvevdzmkp34a8wprl76
+- wvnxvjhsblyiosiddnvaghmp
+- dt6exe82vfmc41cg8sx64q4a
+- jsvdokywdnwhxxszrq5xavuk
 delivery_profile: dependency-update
 ---
 
@@ -39,3 +55,4 @@ delivery_profile: dependency-update
 - [ ] (P3) Decide whether to guard the app-brain producer sync against the dev-Coolify-down env-strip edge case: the merged brain script treats Coolify as authoritative and replaces an app's environments, so if dev Coolify is unreachable at run time AND an app has a dev env recorded, --apply could strip it. Moot today (no app-brain app has a dev env); revisit before/after enabling --apply if any app gains a dev environment. — added 2026-06-27
 - [x] (P2) Wire all four brains (app/infra/open/code) to the BWS-accepted secret-handling pattern instead of plain Coolify env values. Today every brain reads MCP_ACCESS_KEY/POSTGRES_PASSWORD (and OPENROUTER_API_KEY for app/open) directly from Coolify env, and the .bws-secrets.toml UUIDs are all unfilled 0000…0001/0002 placeholders ("filled at cutover", never done). Create the real BWS secrets, fill the manifest UUIDs, wire Coolify->BWS injection (or runtime fetch per build-agent-secrets.md), and rotate the existing values as part of the move. Portfolio-wide: do all four or none for consistency. — added 2026-06-30
 - [x] (P2) Onboard to code-standards (foundation matrix red: code.not-onboarded) — added 2026-07-02
+- [ ] (P2) Add [tool.ruff] extend-exclude = ["*.md"] per code-standards ADR-0009. Predicted 2026-08-13 in the ruff-0.16 spec ('the pattern bites in four more') and never tracked; brain#33 (ruff 0.15.21 to 0.16.0) is red on it now — 2 markdown files would be reformatted, make check exits 1, and the bump cannot land until main carries the exclusion. Same one-line fix the other eight repos took. — added 2026-08-17
