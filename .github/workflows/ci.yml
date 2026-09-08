@@ -102,6 +102,9 @@ jobs:
           UUID_APP: ${{ secrets.COOLIFY_APP_UUID_APP }}
           UUID_CODE: ${{ secrets.COOLIFY_APP_UUID_CODE }}
         run: |
+          set -euo pipefail
+          : > "${RUNNER_TEMP}/deployments.txt"
+
           for entry in "infra:${UUID_INFRA}" "open:${UUID_OPEN}" "app:${UUID_APP}" "code:${UUID_CODE}"; do
             name="${entry%%:*}"
             uuid="${entry##*:}"
@@ -110,8 +113,28 @@ jobs:
               continue
             fi
             echo "Triggering deploy for ${name}-brain (uuid=${uuid})..."
-            curl -f -X GET "${WEBHOOK_URL}?uuid=${uuid}&force=false" \
-              -H "Authorization: Bearer ${API_TOKEN}"
+            # KEEP THE DEPLOYMENT ID COOLIFY NAMES. Until 2026-09-07 this response was
+            # printed and discarded, so the step below could ask production what it was
+            # SERVING and could not ask Coolify whether the deployment had failed. It
+            # had: on 2026-09-06 brain-app's deployment died two seconds in, Coolify
+            # rolled it back, and the step below waited the full 600s for a swap that
+            # had already been abandoned -- then reported an ambiguity rather than the
+            # failure. app-brain served a stale build for a day and a half.
+            response=$(curl -fsS -X GET "${WEBHOOK_URL}?uuid=${uuid}&force=false" \
+              -H "Authorization: Bearer ${API_TOKEN}")
+            deployment=$(printf '%s' "${response}" | python3 -c \
+              'import json,sys; print(json.load(sys.stdin)["deployments"][0]["deployment_uuid"])' \
+              2>/dev/null || true)
+            # A 2xx that yields no deployment id is an accepted request that queued
+            # nothing, and everywhere downstream that is indistinguishable from a
+            # successful trigger.
+            if [ -z "${deployment}" ]; then
+              echo "[FAIL] the response for ${name}-brain names no deployment, so nothing"
+              echo "       is known to have been queued."
+              exit 1
+            fi
+            echo "  queued as ${deployment}"
+            echo "${name} ${deployment}" >> "${RUNNER_TEMP}/deployments.txt"
           done
 
       # The step above succeeds the moment Coolify ACCEPTS each webhook — it says nothing
@@ -132,6 +155,8 @@ jobs:
       - name: Verify every deployed brain is serving the new revision
         env:
           EXPECTED: ${{ github.sha }}
+          WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
           # A knob only so the timeout can be demonstrated in seconds instead of ten
           # minutes: a poll never seen to fail proves nothing. Production value is 600.
           DEADLINE_SECONDS: 600
@@ -146,6 +171,18 @@ jobs:
           # instantly — the poll-that-compares-nothing this step exists not to be.
           if [ -z "${EXPECTED}" ]; then
             echo "[FAIL] no expected revision was supplied; refusing to report success."
+            exit 1
+          fi
+
+          # The deploy webhook IS an API route, so the rest of the API is one path
+          # segment away. Derived rather than given a secret of its own, because two
+          # secrets naming one Coolify can disagree and the wrong one fails as a 404
+          # nobody attributes. Refused rather than guessed if the shape is not the one
+          # this derivation assumes.
+          api_base="${WEBHOOK_URL%/deploy}"
+          if [ "${api_base}" = "${WEBHOOK_URL}" ]; then
+            echo "[FAIL] COOLIFY_WEBHOOK_URL does not end in /deploy, so the API base"
+            echo "       cannot be derived from it. Nothing here will guess a URL."
             exit 1
           fi
 
@@ -174,6 +211,42 @@ jobs:
           while true; do
             waiting=""
             for name in ${pending}; do
+              # ASK COOLIFY FIRST. Production answers what it is SERVING, and that cannot
+              # tell a deployment still in flight from one that failed and was rolled
+              # back: both leave the previous container answering, and this step used to
+              # wait out the whole deadline on either. Coolify knows which it is.
+              #
+              # ONLY AN EXPLICIT `failed` DECIDES ANYTHING HERE. A status that cannot be
+              # read is not a verdict -- the revision poll below remains the authority on
+              # success and the deadline still binds -- so a Coolify that cannot be
+              # reached costs a slower failure and never a wrong one. The response is
+              # held in a variable and never echoed: it embeds the whole application
+              # record.
+              deployment=$(awk -v n="${name}" '$1 == n {print $2}' \
+                "${RUNNER_TEMP}/deployments.txt")
+              if [ -n "${deployment}" ]; then
+                row=$(curl -fsS --max-time 10 \
+                  "${api_base}/deployments/${deployment}" \
+                  -H "Authorization: Bearer ${API_TOKEN}" 2>/dev/null || true)
+                state=$(printf '%s' "${row}" | python3 -c \
+                  'import json,sys; print(json.load(sys.stdin).get("status",""))' \
+                  2>/dev/null || true)
+                if [ "${state}" = "failed" ]; then
+                  # The FIRST failure line only, and bounded. The ones after it carry the
+                  # generated compose file base64-encoded, which says nothing a reader
+                  # needs and is not this step's to publish.
+                  reason=$(printf '%s' "${row}" | python3 -c \
+                    'import json,sys; rows=json.loads(json.load(sys.stdin).get("logs") or "[]"); print(next((str(e.get("output","")) for e in rows if str(e.get("output","")).startswith("Deployment failed:")), ""))' \
+                    2>/dev/null | head -1 | cut -c1-300)
+                  echo "[FAIL] Coolify's deployment of ${name}-brain FAILED, so ${EXPECTED}"
+                  echo "       was never going to arrive. ${name}-brain is still serving"
+                  echo "       whatever it served before this run, and nothing will"
+                  echo "       correct that on its own."
+                  echo "       Coolify said: ${reason:-<no failure line in its log>}"
+                  echo "       Deployment ${deployment}; the full log is in Coolify."
+                  exit 1
+                fi
+              fi
               # No -f: /api/health answers 503 when the database is unreachable, and
               # that body still names the revision. Discarding it would label a brain
               # that HAS swapped to the new image `<unreachable>` and send whoever
