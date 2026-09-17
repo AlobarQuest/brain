@@ -1,0 +1,4 @@
+# Whether the SDS factory may be dispatched work in this repository.
+# Absence of this file means NO -- participation is declared, never assumed.
+factory_target = true
+factory_target_reason = "a dispatch target; dependency updates and caller-pin remediation land here through the factory (caller workflow onboarded 2026-07-09, WS-6.4a) -- note that a landing here redeploys all four brain applications"
