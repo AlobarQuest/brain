@@ -1,4 +1,4 @@
-fastmcp>=4.0.3,<5
+fastmcp>=4.0.5,<5
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 sqlalchemy==2.0.54
