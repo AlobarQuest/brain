@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -71,7 +71,7 @@ class RuleRepository:
         if rule is None:
             return None
         if rule.retired_at is None:
-            rule.retired_at = datetime.now(timezone.utc)
+            rule.retired_at = datetime.now(UTC)
         rule.status = STATUS_DEPRECATED
         await self.session.flush()
         return rule

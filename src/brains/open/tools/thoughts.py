@@ -77,7 +77,7 @@ async def _extract_metadata(text: str) -> dict:
         data = r.json()
     try:
         return _normalize_metadata(json.loads(data["choices"][0]["message"]["content"]))
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+    except json.JSONDecodeError, KeyError, IndexError, TypeError:
         return dict(DEFAULT_METADATA)
 
 

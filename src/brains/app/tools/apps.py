@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastmcp import FastMCP
 
@@ -210,7 +210,7 @@ def register_app_tools(mcp: FastMCP) -> None:
         if canonical_repo_slug(github_repo) is None:
             return {"error": "invalid_params: github_repo must be 'owner/repo'"}
 
-        determined_at = None if retracting else datetime.now(timezone.utc)
+        determined_at = None if retracting else datetime.now(UTC)
         async with get_session_factory()() as session:
             repo = AppRepository(session)
             repository = await repo.record_repository_landing(

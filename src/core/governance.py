@@ -11,7 +11,7 @@ import hmac
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -185,7 +185,7 @@ def proposed_defaults(*, proposed_by: str | None, applicability: dict, auto_appr
     if auto_approve and require_approver():
         data["status"] = STATUS_APPROVED
         data["reviewed_by"] = APPROVER_IDENTITY
-        data["reviewed_at"] = datetime.now(timezone.utc)
+        data["reviewed_at"] = datetime.now(UTC)
     return data
 
 
@@ -266,9 +266,9 @@ async def _approve_record(
             return {"error": "conflict_unacknowledged", "conflict_note": rec.conflict_note}
         rec.status = STATUS_APPROVED
         rec.reviewed_by = APPROVER_IDENTITY
-        rec.reviewed_at = datetime.now(timezone.utc)
+        rec.reviewed_at = datetime.now(UTC)
         if rec.conflict_kind == CONFLICT_DUPLICATE and acknowledge_conflict:
-            rec.conflict_acknowledged_at = datetime.now(timezone.utc)
+            rec.conflict_acknowledged_at = datetime.now(UTC)
         await session.commit()
         return {"approved": True, "record_type": record_type, "id": id, "status": rec.status}
 
@@ -287,7 +287,7 @@ async def _reject_record(
             return err
         rec.status = STATUS_DEPRECATED
         rec.reviewed_by = APPROVER_IDENTITY
-        rec.reviewed_at = datetime.now(timezone.utc)
+        rec.reviewed_at = datetime.now(UTC)
         note = f"REJECTED: {reason}"
         rec.conflict_note = f"{rec.conflict_note} | {note}" if rec.conflict_note else note
         await session.commit()

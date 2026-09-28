@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -70,7 +70,7 @@ class RuleRepository:
         for key, value in fields.items():
             if key in self._UPDATABLE_FIELDS:
                 setattr(rule, key, value)
-        rule.updated_at = datetime.now(timezone.utc)
+        rule.updated_at = datetime.now(UTC)
         rule.updated_by = updated_by
         await self.session.flush()
         return rule
@@ -82,7 +82,7 @@ class RuleRepository:
         if rule is None:
             return None
         if rule.retired_at is None:
-            rule.retired_at = datetime.now(timezone.utc)
+            rule.retired_at = datetime.now(UTC)
         rule.status = STATUS_DEPRECATED
         await self.session.flush()
         return rule

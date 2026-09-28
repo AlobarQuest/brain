@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -315,7 +315,7 @@ class AppRepository:
         repository.default_branch_landing = landing
         repository.default_branch_landing_determined_at = determined_at
         repository.default_branch_landing_evidence = evidence
-        repository.updated_at = datetime.now(timezone.utc)
+        repository.updated_at = datetime.now(UTC)
         await self.session.flush()
         return repository
 

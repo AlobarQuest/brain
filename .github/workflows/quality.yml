@@ -1,4 +1,8 @@
-# code-standards:managed:start — everything down to :end is replaced by `code-standards sync`.
+# LOCALLY OWNED since 2026-09-28. The code-standards:managed markers were removed (ADR-0008
+# escape hatch) so that setup-python can read .python-version: the vendored template still names
+# 3.12, and a `code-standards sync` would have put that back. Restore both markers once the
+# template reads `python-version-file: .python-version`.
+#
 # code-standards GitHub Actions workflow (vendored).
 # Destination: .github/workflows/quality.yml
 # Edit upstream and `code-standards sync`.
@@ -54,7 +58,7 @@ jobs:
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: Install uv
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
@@ -133,4 +137,3 @@ jobs:
         # `[dependency-groups]`, the installer above will not put them in place
         # and this step now fails loudly instead of going green having run nothing.
         run: make check
-# code-standards:managed:end — content OUTSIDE these markers is yours and is preserved. Delete both markers to own the whole file: sync then writes nothing here and says so every run.

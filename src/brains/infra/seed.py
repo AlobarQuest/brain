@@ -10,7 +10,7 @@ Usage:
 import argparse
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from src.brains.infra.models import Combo
@@ -31,7 +31,7 @@ def _seed_governance() -> dict:
         "authority": AUTHORITY_INFORMATIONAL,
         "proposed_by": "seed",
         "reviewed_by": "seed",
-        "reviewed_at": datetime.now(timezone.utc),
+        "reviewed_at": datetime.now(UTC),
     }
 
 

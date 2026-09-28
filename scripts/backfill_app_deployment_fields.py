@@ -162,7 +162,7 @@ def git_origin_url(repo_path: str | None) -> str | None:
             text=True,
             timeout=10,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:
         return None

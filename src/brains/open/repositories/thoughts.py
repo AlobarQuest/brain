@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,7 +82,7 @@ class ThoughtRepository:
         if person_filter:
             stmt = stmt.where(Thought.metadata_.contains({"people": [person_filter]}))
         if days:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = datetime.now(UTC) - timedelta(days=days)
             stmt = stmt.where(Thought.created_at >= since)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -66,6 +66,6 @@ class RoadRepository:
         for key, value in fields.items():
             if key in self._UPDATABLE_FIELDS:
                 setattr(road, key, value)
-        road.updated_at = datetime.now(timezone.utc)
+        road.updated_at = datetime.now(UTC)
         await self.session.flush()
         return road
