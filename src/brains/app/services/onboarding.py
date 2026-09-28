@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.brains.app.repositories.apps import AppRepository
 from src.brains.app.repositories.knowledge import KnowledgeRepository
@@ -99,7 +99,7 @@ async def run_onboarding_job(
                             "proposed_by": "onboard",
                             "applicability": {"app_slug": slug, "knowledge_type": knowledge_type},
                             "reviewed_by": "onboard",
-                            "reviewed_at": datetime.now(timezone.utc),
+                            "reviewed_at": datetime.now(UTC),
                         }
                         chunk = await knowledge_repo.create(
                             app_id=app_id,
@@ -136,7 +136,7 @@ async def run_onboarding_job(
             slug,
             status=final_status,
             error=str(errors) if errors else None,
-            onboarded_at=datetime.now(timezone.utc),
+            onboarded_at=datetime.now(UTC),
         )
         await session.commit()
 

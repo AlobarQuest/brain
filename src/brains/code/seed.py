@@ -18,7 +18,7 @@ the two modes behave identically — there is no destructive overwrite path.
 import argparse
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from src.brains.code.repositories.roads import RoadRepository
@@ -37,7 +37,7 @@ def _seed_governance() -> dict:
         "authority": AUTHORITY_INFORMATIONAL,
         "proposed_by": "seed",
         "reviewed_by": "seed",
-        "reviewed_at": datetime.now(timezone.utc),
+        "reviewed_at": datetime.now(UTC),
     }
 
 

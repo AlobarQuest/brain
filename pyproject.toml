@@ -9,6 +9,10 @@ testpaths = ["tests"]
 # documents, i.e. the record, and rewriting them buys nothing.
 extend-exclude = ["*.md"]
 line-length = 100
+# This repository installs from requirements.txt and has no [project] table, so there is no
+# requires-python for ruff to take its target from. It is named here instead, and
+# tests/test_interpreter_agreement.py holds it to .python-version.
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C90"]
@@ -31,7 +35,7 @@ max-complexity = 10
 
 [tool.pyright]
 typeCheckingMode = "basic"
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 venvPath = "."
 venv = ".venv"
 include = ["src", "tests", "scripts"]

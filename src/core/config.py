@@ -1,5 +1,5 @@
 import re
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic import field_validator, model_validator
@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
-class BrainType(str, Enum):
+class BrainType(StrEnum):
     APP = "app"
     INFRA = "infra"
     OPEN = "open"
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _keys_must_differ(self) -> "Settings":
+    def _keys_must_differ(self) -> Settings:
         if self.contributor_key is not None and self.contributor_key == self.mcp_access_key:
             raise ValueError(
                 "contributor_key must not equal mcp_access_key "
@@ -72,5 +72,5 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> "Settings":
+def get_settings() -> Settings:
     return Settings()
