@@ -7,4 +7,4 @@ aiosqlite==0.22.1
 respx==0.23.1
 ruff==0.16.8
 pyright==1.1.414
-greenlet>=3.5.5
+greenlet>=3.5.6
