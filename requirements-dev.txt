@@ -5,6 +5,6 @@ httpx==0.28.1
 httpx2==2.13.0
 aiosqlite==0.22.1
 respx==0.23.1
-ruff==0.16.8
+ruff==0.16.9
 pyright==1.1.414
 greenlet>=3.5.6
