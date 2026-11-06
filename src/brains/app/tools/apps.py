@@ -7,6 +7,7 @@ from src.brains.app.repositories.apps import AppRepository, canonical_repo_slug
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 from src.core.db import get_session_factory
+from src.core.governance import require_approver
 
 APP_STATUSES = ["active", "archived", "in-progress", "paused"]
 
@@ -101,7 +102,12 @@ def register_app_tools(mcp: FastMCP) -> None:
 
         environments is a list of {name, branch, url, coolify_app_uuid} records describing,
         per environment, the git branch each one deploys from.
+
+        APPROVER KEY ONLY: the app record is approved state with no proposal path,
+        so a contributor key could otherwise rewrite it without review.
         """
+        if not require_approver():
+            return {"error": "not_authorized", "hint": "updating an app requires the approver key"}
         all_fields = {
             "name": name,
             "description": description,
@@ -197,7 +203,15 @@ def register_app_tools(mcp: FastMCP) -> None:
         one indivisible claim, and a DB CHECK refuses any row that carries the
         value without the other two. The date is stamped here, server-side, so a
         determination cannot be back-dated by its author.
+
+        APPROVER KEY ONLY: the factory's landing lane merges an 'inert' repository
+        without a deploy policy, so writing this fact is an approval act.
         """
+        if not require_approver():
+            return {
+                "error": "not_authorized",
+                "hint": "recording a landing determination requires the approver key",
+            }
         retracting = landing == LANDING_UNKNOWN
         if not retracting:
             if landing not in LANDING_VALUES:

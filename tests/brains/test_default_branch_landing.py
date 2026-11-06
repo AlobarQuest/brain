@@ -439,11 +439,12 @@ class _CommitSession:
         return None
 
 
-async def _tools(monkeypatch):
+async def _tools(monkeypatch, *, approver=True):
     from fastmcp import FastMCP
 
     import src.brains.app.tools.apps as tools_mod
 
+    monkeypatch.setattr(tools_mod, "require_approver", lambda: approver)
     monkeypatch.setattr(tools_mod, "get_session_factory", lambda: lambda: _CommitSession())
     monkeypatch.setattr(tools_mod, "AppRepository", _RecordingRepo)
     mcp = FastMCP("t")
@@ -451,13 +452,48 @@ async def _tools(monkeypatch):
     return {t.name: t for t in await mcp.list_tools()}
 
 
-async def _call(monkeypatch, name, **kwargs):
-    tools = await _tools(monkeypatch)
+async def _call(monkeypatch, name, *, approver=True, **kwargs):
+    tools = await _tools(monkeypatch, approver=approver)
     result = await tools[name].run(kwargs)
     return json.loads(result.content[0].text)
 
 
 REPO = "AlobarQuest/x"
+
+
+# Approver gate: both writes are approved state with no proposal path, so a
+# contributor-key caller is refused before any database work.
+
+
+def _forbid_repository(monkeypatch):
+    import src.brains.app.tools.apps as tools_mod
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("must not reach the repository when denied")
+
+    monkeypatch.setattr(tools_mod, "get_session_factory", _fail)
+
+
+async def test_record_denied_without_approver_key(monkeypatch):
+    tools = await _tools(monkeypatch, approver=False)
+    _forbid_repository(monkeypatch)
+    result = await tools["record_default_branch_landing"].run(
+        {"github_repo": REPO, "landing": LANDING_INERT, "evidence": "read the workflow"}
+    )
+    assert json.loads(result.content[0].text) == {
+        "error": "not_authorized",
+        "hint": "recording a landing determination requires the approver key",
+    }
+
+
+async def test_update_app_denied_without_approver_key(monkeypatch):
+    tools = await _tools(monkeypatch, approver=False)
+    _forbid_repository(monkeypatch)
+    result = await tools["update_app"].run({"slug": "x", "status": "archived"})
+    assert json.loads(result.content[0].text) == {
+        "error": "not_authorized",
+        "hint": "updating an app requires the approver key",
+    }
 
 
 async def test_record_rejects_out_of_vocabulary_landing(monkeypatch):
