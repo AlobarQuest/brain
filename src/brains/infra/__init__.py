@@ -12,6 +12,7 @@ from src.brains.infra.tools.rules import register_rule_tools
 from src.brains.infra.tools.versions import register_version_tools
 from src.core.db import get_session_factory
 from src.core.governance import register_governance_tools
+from src.core.proposed import proposed_fields, register_proposed_route
 from src.core.registry import Capabilities
 
 capabilities = Capabilities(embeddings=False, auth_exact=("/api/health",), auth_prefixes=())
@@ -87,6 +88,15 @@ def register_routes(app) -> None:
     infraops standards audit (which sends the x-brain-key), so its shape must
     stay stable — note it includes ``created_at`` (the MCP get_rules tool omits it).
     """
+
+    register_proposed_route(
+        app,
+        {
+            "rule": (Rule, lambda r: proposed_fields(r, r.rule, r.reason)),
+            "lesson": (Lesson, lambda r: proposed_fields(r, r.title, r.content)),
+            "combo": (Combo, lambda r: proposed_fields(r, r.name, r.description)),
+        },
+    )
 
     @app.get("/api/rules")
     async def list_rules_api(

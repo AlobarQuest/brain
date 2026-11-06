@@ -24,6 +24,7 @@ from src.brains.code.tools.search import register_search_tools
 from src.brains.code.tools.serialize import exemplar_dict, lesson_dict, road_dict, rule_dict
 from src.core.db import get_session_factory
 from src.core.governance import register_governance_tools
+from src.core.proposed import proposed_fields, register_proposed_route
 from src.core.registry import Capabilities
 
 capabilities = Capabilities(embeddings=False, auth_exact=("/api/health",), auth_prefixes=())
@@ -82,6 +83,15 @@ def register_routes(app) -> None:
     Mirrors infra brain's GET /api/rules (REST includes created_at; the MCP tools
     omit it). Write-back stays on MCP, exactly like the other brains.
     """
+
+    register_proposed_route(
+        app,
+        {
+            "rule": (Rule, lambda r: proposed_fields(r, r.rule, r.reason)),
+            "lesson": (Lesson, lambda r: proposed_fields(r, r.title, r.content)),
+            "exemplar": (Exemplar, lambda r: proposed_fields(r, r.label, r.note)),
+        },
+    )
 
     @app.get("/api/roads")
     async def list_roads_api(

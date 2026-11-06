@@ -2,6 +2,7 @@ from src.brains.app.models import AppKnowledge
 from src.brains.app.tools.apps import register_app_tools
 from src.brains.app.tools.knowledge import register_knowledge_tools
 from src.core.governance import register_governance_tools
+from src.core.proposed import proposed_fields, register_proposed_route
 from src.core.registry import Capabilities
 
 READ_PATHS = ("/api/apps/resolve", "/api/apps/default-branch-landing")
@@ -20,6 +21,14 @@ def register(mcp) -> None:
     register_governance_tools(mcp, {"app_knowledge": AppKnowledge})
 
 
+def knowledge_title(row) -> str:
+    """`<app_slug> · <knowledge_type>: <first line of content>`; the colon part is
+    dropped when the content is blank."""
+    head = f"{row.app_slug} · {row.knowledge_type}"
+    first_line = next((ln.strip() for ln in row.content.splitlines() if ln.strip()), "")
+    return f"{head}: {first_line}" if first_line else head
+
+
 def register_routes(app) -> None:
     """REST endpoints beyond /api/health (auth-protected by the core middleware,
     i.e. require the x-brain-key header or ?key= — the consumer passes APPBRAIN_ACCESS_KEY).
@@ -33,6 +42,16 @@ def register_routes(app) -> None:
     are listed in READ_PATHS, so a READ_KEY holder can call them and nothing else.
     """
     from starlette.responses import JSONResponse
+
+    register_proposed_route(
+        app,
+        {
+            "app_knowledge": (
+                AppKnowledge,
+                lambda r: proposed_fields(r, knowledge_title(r), r.content),
+            )
+        },
+    )
 
     @app.get("/api/apps/resolve")
     async def resolve_app(coolify_app_uuid: str | None = None, fqdn: str | None = None):
