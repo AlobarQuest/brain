@@ -210,3 +210,72 @@ def test_open_brain_has_no_route():
     if hasattr(brain, "register_routes"):
         brain.register_routes(app)
     assert "/api/proposed" not in {getattr(r, "path", None) for r in app.routes}
+
+
+def _capture_sources(brain_type, monkeypatch):
+    """Run a brain's register_routes with register_proposed_route stubbed; return its sources."""
+    from fastapi import FastAPI
+
+    brain = importlib.import_module(f"src.brains.{brain_type}")
+    captured: dict = {}
+    monkeypatch.setattr(
+        brain, "register_proposed_route", lambda app, sources: captured.update(sources)
+    )
+    brain.register_routes(FastAPI())
+    return captured
+
+
+def _capture_governed(brain_type, monkeypatch):
+    from fastmcp import FastMCP
+
+    brain = importlib.import_module(f"src.brains.{brain_type}")
+    captured: dict = {}
+    monkeypatch.setattr(
+        brain, "register_governance_tools", lambda mcp, records: captured.update(records)
+    )
+    brain.register(FastMCP("t"))
+    return captured
+
+
+def _row_cases():
+    from src.brains.app.models import AppKnowledge
+    from src.brains.code.models import Exemplar as CodeExemplar
+    from src.brains.code.models import Lesson as CodeLesson
+    from src.brains.code.models import Rule as CodeRule
+    from src.brains.infra.models import Combo, Lesson, Rule
+
+    return [
+        ("infra", "rule", Rule(id=1, rule="R", reason="why"), "R", "why"),
+        ("infra", "lesson", Lesson(id=1, title="T", content="body"), "T", "body"),
+        ("infra", "combo", Combo(id=1, name="N", description="desc"), "N", "desc"),
+        ("code", "rule", CodeRule(id=1, rule="R", reason="why"), "R", "why"),
+        ("code", "lesson", CodeLesson(id=1, title="T", content="body"), "T", "body"),
+        ("code", "exemplar", CodeExemplar(id=1, label="L", note="note"), "L", "note"),
+        (
+            "app",
+            "app_knowledge",
+            AppKnowledge(id=1, app_slug="crm", knowledge_type="decision", content="C1\nmore"),
+            "crm · decision: C1",
+            "C1\nmore",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "brain_type,record_type,row,title,summary",
+    _row_cases(),
+    ids=lambda v: v if isinstance(v, str) and len(v) < 14 else None,
+)
+def test_real_brain_serializers(monkeypatch, brain_type, record_type, row, title, summary):
+    _model, to_record = _capture_sources(brain_type, monkeypatch)[record_type]
+    out = to_record(row)
+    assert out["id"] == 1
+    assert out["title"] == title
+    assert out["summary"] == summary
+
+
+@pytest.mark.parametrize("brain_type", ["app", "infra", "code"])
+def test_proposed_sources_match_governed_records(monkeypatch, brain_type):
+    assert set(_capture_sources(brain_type, monkeypatch)) == set(
+        _capture_governed(brain_type, monkeypatch)
+    )

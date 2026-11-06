@@ -326,11 +326,11 @@ async def test_approve_coerces_uuid_string_id_for_uuid_pk(gov_engine, monkeypatc
     assert _data(bad) == {"error": "invalid_id", "record_type": "uuid_rec", "id": "not-a-uuid"}
 
 
-async def _reviewed_by_after(gov_engine, monkeypatch, tool, args, n=1):
-    """Seed n proposed rows, call `tool` for row 1 via MCP, return row 1's reviewed_by."""
+async def _reviewed_by_after(gov_engine, monkeypatch, tool, args):
+    """Seed one proposed row, call `tool` for it via MCP, return its reviewed_by."""
     factory = async_sessionmaker(gov_engine, expire_on_commit=False)
     async with factory() as s:
-        s.add_all([_Rec(name=f"r{i}", status=g.STATUS_PROPOSED) for i in range(n)])
+        s.add(_Rec(name="r0", status=g.STATUS_PROPOSED))
         await s.commit()
     monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
     monkeypatch.setattr(g, "require_approver", lambda: True)
@@ -359,7 +359,9 @@ async def test_reject_records_reviewed_by(gov_engine, monkeypatch):
 
 
 @pytest.mark.parametrize("tool,extra", [("approve", {}), ("reject", {"reason": "no"})])
-@pytest.mark.parametrize("args", [{}, {"reviewed_by": ""}, {"reviewed_by": None}])
+@pytest.mark.parametrize(
+    "args", [{}, {"reviewed_by": ""}, {"reviewed_by": "  "}, {"reviewed_by": None}]
+)
 async def test_reviewed_by_defaults(gov_engine, monkeypatch, tool, extra, args):
     got = await _reviewed_by_after(gov_engine, monkeypatch, tool, {**extra, **args})
     assert got == g.APPROVER_IDENTITY

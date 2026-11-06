@@ -269,7 +269,7 @@ async def _approve_record(
         ):
             return {"error": "conflict_unacknowledged", "conflict_note": rec.conflict_note}
         rec.status = STATUS_APPROVED
-        rec.reviewed_by = reviewed_by or APPROVER_IDENTITY
+        rec.reviewed_by = (reviewed_by or "").strip() or APPROVER_IDENTITY
         rec.reviewed_at = datetime.now(UTC)
         if rec.conflict_kind == CONFLICT_DUPLICATE and acknowledge_conflict:
             rec.conflict_acknowledged_at = datetime.now(UTC)
@@ -294,7 +294,7 @@ async def _reject_record(
         if err:
             return err
         rec.status = STATUS_DEPRECATED
-        rec.reviewed_by = reviewed_by or APPROVER_IDENTITY
+        rec.reviewed_by = (reviewed_by or "").strip() or APPROVER_IDENTITY
         rec.reviewed_at = datetime.now(UTC)
         note = f"REJECTED: {reason}"
         rec.conflict_note = f"{rec.conflict_note} | {note}" if rec.conflict_note else note
