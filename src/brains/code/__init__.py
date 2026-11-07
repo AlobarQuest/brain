@@ -152,17 +152,17 @@ def register_routes(app) -> None:
     @app.post("/api/proposals/lessons", status_code=201)
     async def propose_lesson_api(body: CodeLessonProposal):
         async with get_session_factory()() as session:
-            lesson, error = await propose_lesson(session, **body.model_dump())
+            lesson, error, guard = await propose_lesson(session, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()
-            return {"created": True, "lesson": lesson_dict(lesson)}
+            return {"created": True, "lesson": lesson_dict(lesson), **guard}
 
     @app.post("/api/proposals/rules", status_code=201)
     async def propose_rule_api(body: CodeRuleProposal):
         async with get_session_factory()() as session:
-            rule, error = await propose_rule(session, **body.model_dump())
+            rule, error, guard = await propose_rule(session, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()
-            return {"created": True, "rule": rule_dict(rule)}
+            return {"created": True, "rule": rule_dict(rule), **guard}

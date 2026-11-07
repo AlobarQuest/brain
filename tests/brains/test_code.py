@@ -248,7 +248,7 @@ async def test_api_proposes_lesson_with_contributor_key(monkeypatch):
 
     async def fake_propose_lesson(session, **kwargs):
         assert kwargs["authority"] == "recommended"
-        return _FakeLesson(), None
+        return _FakeLesson(), None, {}
 
     monkeypatch.setattr(code, "propose_lesson", fake_propose_lesson)
     transport = httpx.ASGITransport(app=app)

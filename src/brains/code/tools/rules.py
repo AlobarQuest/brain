@@ -1,9 +1,12 @@
+import json
+
 from fastmcp import FastMCP
 
 from src.brains.code.models import Rule
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
 from src.brains.code.tools.serialize import rule_dict
+from src.core.address_guard import fetch_address_book, guard_fields, hold_for_retired, scan
 from src.core.db import get_session_factory
 from src.core.governance import (
     finalize_governance,
@@ -87,6 +90,10 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 auto_approve=severity_auto_approve(auto_approve, severity),
             )
         )
+        hits = scan(
+            [rule, reason, good_example, bad_example, json.dumps(check) if check else None],
+            await fetch_address_book(),
+        )
         async with get_session_factory()() as session:
             if await RoadRepository(session).get_by_slug(road_slug) is None:
                 return {"error": "unknown_road", "road_slug": road_slug}
@@ -100,6 +107,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 candidate={"road_slug": road_slug, "category": category},
             )
             finalize_governance(data, flag)  # duplicate cancels auto-approve; overlap is advisory
+            hold_for_retired(data, hits)
             r = await RuleRepository(session).add(data)
             await session.commit()
             return {
@@ -108,7 +116,8 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "road_slug": r.road_slug,
                 "severity": r.severity,
                 "status": r.status,
-                "conflict": flag.kind if flag else None,
+                "conflict": data.get("conflict_kind"),
+                **guard_fields(hits, held=True),
             }
 
     @mcp.tool()
