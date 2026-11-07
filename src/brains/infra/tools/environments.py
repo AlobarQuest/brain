@@ -27,17 +27,75 @@ def environment_dict(env: Environment) -> dict:
     }
 
 
+_STRING_KEYS = ("ipv4", "ipv6", "tailnet_node", "tailnet_ip")
+_MIN_NAME_LEN = 4
+_NAME_MARKS = frozenset("0123456789.:-")
+
+
+def _bad_address(field: str, value: object, reason: str) -> dict:
+    return {
+        "error": "invalid_addresses",
+        "field": field,
+        "value": value,
+        "reason": reason,
+        "allowed": list(ADDRESS_KEYS),
+    }
+
+
+def _undistinctive(name: str) -> bool:
+    """A name matched as a substring must not be a short or plain word (`ubuntu`)."""
+    return len(name) < _MIN_NAME_LEN or not _NAME_MARKS & set(name)
+
+
 def _invalid_addresses(addresses: object) -> dict | None:
     if not isinstance(addresses, dict) or set(addresses) - set(ADDRESS_KEYS):
         return {"error": "invalid_addresses", "allowed": list(ADDRESS_KEYS)}
+    for key in _STRING_KEYS:
+        if key in addresses and not (isinstance(addresses[key], str) and addresses[key]):
+            return _bad_address(key, addresses[key], "must be a non-empty string")
+    hostnames = addresses.get("hostnames", [])
+    if not isinstance(hostnames, list) or not all(isinstance(h, str) and h for h in hostnames):
+        return _bad_address("hostnames", hostnames, "must be a list of non-empty strings")
+    names = [("tailnet_node", addresses["tailnet_node"])] if "tailnet_node" in addresses else []
+    names.extend(("hostnames", h) for h in hostnames)
+    for field, name in names:
+        if _undistinctive(name):
+            return _bad_address(
+                field,
+                name,
+                f"must be at least {_MIN_NAME_LEN} characters and contain a digit, '.', ':' or '-'",
+            )
     return None
 
 
 def _parse_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
     try:
-        return date.fromisoformat(str(value))
+        return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _invalid_previous(previous: list | None) -> dict | None:
+    for index, entry in enumerate(previous or []):
+        if not isinstance(entry, dict):
+            return {
+                "error": "invalid_previous",
+                "index": index,
+                "reason": "each previous entry must be an object",
+            }
+        if not isinstance(entry.get("provider"), str):
+            return {
+                "error": "invalid_previous",
+                "index": index,
+                "reason": "provider must be a string",
+            }
+        if (bad := _invalid_addresses(entry.get("addresses"))) is not None:
+            return bad
+        if _parse_date(entry.get("until")) is None:
+            return {"error": "invalid_date", "field": "previous.until"}
+    return None
 
 
 def register_environment_tools(mcp: FastMCP) -> None:
@@ -71,10 +129,12 @@ def register_environment_tools(mcp: FastMCP) -> None:
         updated_by: str = "devon",
     ) -> dict:
         """Create or update an environment role. APPROVER KEY ONLY. addresses may hold only
-        ipv4, ipv6, tailnet_node, tailnet_ip, hostnames (list); all optional. current_since is an
-        ISO date. When previous is omitted and ipv4/ipv6/tailnet_ip changed, the old host is
-        appended to previous (until = today); pass previous to replace the list explicitly. Each
-        previous entry is {addresses, provider, until}. Store no secrets."""
+        ipv4, ipv6, tailnet_node, tailnet_ip (non-empty strings) and hostnames (a list of
+        strings); all optional. tailnet_node and each hostname must be at least 4 characters and
+        contain a digit, '.', ':' or '-'. current_since is an ISO date. When previous is omitted
+        and ipv4/ipv6/tailnet_ip changed, the old host is appended to previous (until = today);
+        pass previous to replace the list explicitly. Each previous entry is
+        {addresses, provider, until}. Store no secrets."""
         if not require_approver():
             return {
                 "error": "not_authorized",
@@ -82,11 +142,8 @@ def register_environment_tools(mcp: FastMCP) -> None:
             }
         if (bad := _invalid_addresses(addresses)) is not None:
             return bad
-        for entry in previous or []:
-            if (bad := _invalid_addresses(entry.get("addresses"))) is not None:
-                return bad
-            if _parse_date(entry.get("until")) is None:
-                return {"error": "invalid_date", "field": "previous.until"}
+        if (bad := _invalid_previous(previous)) is not None:
+            return bad
         since = _parse_date(current_since)
         if since is None:
             return {"error": "invalid_date", "field": "current_since"}

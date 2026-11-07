@@ -163,3 +163,75 @@ async def test_list_environments_any_key(mcp, monkeypatch):
     monkeypatch.setattr(env_tools_module, "require_approver", lambda: False)
     body = await _call(mcp, "list_environments")
     assert [e["role"] for e in body["environments"]] == ["prod-vps"]
+
+
+@pytest.mark.parametrize(
+    ("addresses", "field"),
+    [
+        ({"hostnames": "ubuntu-2gb-ash-1"}, "hostnames"),
+        ({"hostnames": ["ok-host-1", 5]}, "hostnames"),
+        ({"hostnames": ["ok-host-1", ""]}, "hostnames"),
+        ({"ipv4": 1}, "ipv4"),
+        ({"ipv6": ""}, "ipv6"),
+        ({"tailnet_ip": None}, "tailnet_ip"),
+        ({"tailnet_node": ["ovh-vps1"]}, "tailnet_node"),
+    ],
+)
+async def test_set_environment_rejects_mistyped_address_values(mcp, addresses, field):
+    body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
+    assert body["error"] == "invalid_addresses"
+    assert body["field"] == field
+    prev = [{"addresses": addresses, "provider": "p", "until": "2026-01-01"}]
+    body = await _call(mcp, "set_environment", **_set_args(previous=prev))
+    assert body["error"] == "invalid_addresses"
+    assert body["field"] == field
+
+
+@pytest.mark.parametrize(
+    ("entry", "error"),
+    [
+        ({"addresses": {}, "provider": 3, "until": "2026-01-01"}, "invalid_previous"),
+        ({"addresses": {}, "until": "2026-01-01"}, "invalid_previous"),
+        ({"addresses": "1.2.3.4", "provider": "p", "until": "2026-01-01"}, "invalid_addresses"),
+    ],
+)
+async def test_set_environment_rejects_bad_previous_entries(mcp, entry, error):
+    body = await _call(mcp, "set_environment", **_set_args(previous=[entry]))
+    assert body["error"] == error
+
+
+async def test_set_environment_rejects_non_string_until(mcp):
+    prev = [{"addresses": {}, "provider": "p", "until": 20261023}]
+    body = await _call(mcp, "set_environment", **_set_args(previous=prev))
+    assert body == {"error": "invalid_date", "field": "previous.until"}
+
+
+@pytest.mark.parametrize("entry", ["x", 1, None, ["addresses"]])
+def test_invalid_previous_rejects_non_dict_entry(entry):
+    # The MCP schema already rejects these; the validator must not raise if one gets through.
+    assert env_tools_module._invalid_previous([entry]) == {
+        "error": "invalid_previous",
+        "index": 0,
+        "reason": "each previous entry must be an object",
+    }
+
+
+@pytest.mark.parametrize(
+    "addresses",
+    [{"tailnet_node": "ubuntu"}, {"hostnames": ["ubuntu"]}, {"hostnames": ["a-1"]}],
+)
+async def test_set_environment_refuses_plain_or_short_match_strings(mcp, addresses):
+    (field, value) = next(iter(addresses.items()))
+    value = value[0] if isinstance(value, list) else value
+    body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
+    assert body["error"] == "invalid_addresses"
+    assert body["field"] == field and body["value"] == value
+    prev = [{"addresses": addresses, "provider": "p", "until": "2026-01-01"}]
+    body = await _call(mcp, "set_environment", **_set_args(previous=prev))
+    assert body["error"] == "invalid_addresses" and body["value"] == value
+
+
+async def test_set_environment_accepts_distinctive_match_strings(mcp):
+    addresses = {"tailnet_node": "ovh-vps1", "hostnames": ["ubuntu-2gb-ash-1"]}
+    body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
+    assert body["addresses"] == addresses
