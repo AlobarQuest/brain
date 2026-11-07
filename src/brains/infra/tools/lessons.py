@@ -2,7 +2,7 @@ from fastmcp import FastMCP
 
 from src.brains.infra.repositories.lessons import LessonRepository
 from src.core.db import get_session_factory
-from src.core.governance import proposed_defaults
+from src.core.governance import proposed_defaults, severity_auto_approve
 
 
 def register_lesson_tools(mcp: FastMCP) -> None:
@@ -61,9 +61,9 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         auto_approve: bool | None = None,
     ) -> dict:
         """Propose a new lesson (approved for an approver-key caller unless auto_approve=False;
-        proposed for any other caller). Use this to capture infrastructure lessons learned — things
-        that went wrong, workarounds discovered, or patterns that should be followed. severity:
-        CRITICAL, WARN, or INFO."""
+        proposed for any other caller). A CRITICAL lesson stays proposed unless auto_approve=True.
+        Use this to capture infrastructure lessons learned — things that went wrong, workarounds
+        discovered, or patterns that should be followed. severity: CRITICAL, WARN, or INFO."""
         if severity not in ("CRITICAL", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["CRITICAL", "WARN", "INFO"]}
         data = {
@@ -75,7 +75,9 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         }
         data.update(
             proposed_defaults(
-                proposed_by=proposed_by, applicability={"app": app}, auto_approve=auto_approve
+                proposed_by=proposed_by,
+                applicability={"app": app},
+                auto_approve=severity_auto_approve(auto_approve, severity),
             )
         )
         async with get_session_factory()() as session:

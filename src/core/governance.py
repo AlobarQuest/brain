@@ -198,10 +198,14 @@ def proposed_defaults(
     return data
 
 
-def rule_auto_approve(auto_approve: bool | None, severity: str) -> bool | None:
-    """A BLOCK rule stops other agents' work, so it waits for an explicit
-    auto_approve=True; every other severity keeps proposed_defaults' default."""
-    if auto_approve is None and severity == "BLOCK":
+HELD_SEVERITIES = ("BLOCK", "CRITICAL")  # a BLOCK rule, a CRITICAL infra lesson
+
+
+def severity_auto_approve(auto_approve: bool | None, severity: str) -> bool | None:
+    """A BLOCK rule or CRITICAL lesson steers every other agent's work, so it
+    waits for an explicit auto_approve=True; every other severity keeps
+    proposed_defaults' default."""
+    if auto_approve is None and severity in HELD_SEVERITIES:
         return False
     return auto_approve
 

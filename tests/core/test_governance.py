@@ -247,12 +247,14 @@ def test_proposed_defaults_contributor_stays_proposed_when_unset(monkeypatch):
     [
         ("BLOCK", None, False),  # a BLOCK rule waits for an explicit yes
         ("BLOCK", True, True),
+        ("CRITICAL", None, False),  # so does a CRITICAL lesson
+        ("CRITICAL", True, True),
         ("WARN", None, None),  # other severities keep the general default
         ("INFO", False, False),
     ],
 )
-def test_rule_auto_approve(severity, requested, expected):
-    assert g.rule_auto_approve(requested, severity) is expected
+def test_severity_auto_approve(severity, requested, expected):
+    assert g.severity_auto_approve(requested, severity) is expected
 
 
 def test_finalize_governance_duplicate_cancels_auto_approve():
