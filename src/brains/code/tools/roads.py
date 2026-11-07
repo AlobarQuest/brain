@@ -7,6 +7,7 @@ from src.brains.code.repositories.lessons import LessonRepository
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
 from src.brains.code.tools.serialize import exemplar_dict, lesson_dict, road_dict, rule_dict
+from src.core.address_guard import fetch_address_book, hint_only, refusal, scan
 from src.core.db import get_session_factory
 
 CATEGORIES = {"application", "data", "api", "frontend", "delivery-ops", "quality", "security", "ai"}
@@ -69,13 +70,24 @@ def register_road_tools(mcp: FastMCP) -> None:
         home: str | None = None,
         owner_standard: str | None = None,
         adr_ref: str | None = None,
+        allow_retired: bool = False,
     ) -> dict:
         """Add a new road (cross-cutting concern) to the catalog.
 
-        category and status must be valid enum values.
+        category and status must be valid enum values. Roads are not governed, so one that names
+        a retired host address is refused unless allow_retired=True (for dated history).
         """
         return await _do_add_road(
-            slug, name, category, status, summary, decided_approach, home, owner_standard, adr_ref
+            slug,
+            name,
+            category,
+            status,
+            summary,
+            decided_approach,
+            home,
+            owner_standard,
+            adr_ref,
+            allow_retired,
         )
 
     @mcp.tool()
@@ -91,11 +103,13 @@ def register_road_tools(mcp: FastMCP) -> None:
         name: str | None = None,
         summary: str | None = None,
         category: str | None = None,
+        allow_retired: bool = False,
     ) -> dict:
         """Update a road as it gets paved.
 
         Typically status, decided_approach, home, adr_ref, last_validated_at,
-        validation_note. The slug is immutable.
+        validation_note. The slug is immutable. A change that names a retired host address is
+        refused unless allow_retired=True (for dated history).
         """
         return await _do_update_road(
             slug,
@@ -109,6 +123,7 @@ def register_road_tools(mcp: FastMCP) -> None:
             name,
             summary,
             category,
+            allow_retired,
         )
 
 
@@ -164,12 +179,18 @@ async def _do_add_road(
     home: str | None,
     owner_standard: str | None,
     adr_ref: str | None,
+    allow_retired: bool,
 ) -> dict:
     """Implementation: add a new road."""
     if category not in CATEGORIES:
         return {"error": "invalid_category", "allowed": sorted(CATEGORIES)}
     if status not in STATUSES:
         return {"error": "invalid_status", "allowed": sorted(STATUSES)}
+    hits = scan(
+        [name, summary, decided_approach, home, owner_standard, adr_ref], await fetch_address_book()
+    )
+    if hits.any_retired and not allow_retired:
+        return refusal(hits)
     async with get_session_factory()() as session:
         repo = RoadRepository(session)
         if await repo.get_by_slug(slug) is not None:
@@ -188,7 +209,11 @@ async def _do_add_road(
             }
         )
         await session.commit()
-        return {"created": True, "slug": road.slug}
+        return {
+            "created": True,
+            "slug": road.slug,
+            **hint_only(hits),
+        }
 
 
 async def _do_update_road(
@@ -203,6 +228,7 @@ async def _do_update_road(
     name: str | None,
     summary: str | None,
     category: str | None,
+    allow_retired: bool,
 ) -> dict:
     """Implementation: update a road."""
     if status is not None and status not in STATUSES:
@@ -235,10 +261,18 @@ async def _do_update_road(
     }
     if not fields:
         return {"error": "no_fields", "hint": "Provide at least one field to update."}
+    hits = scan([v for v in fields.values() if isinstance(v, str)], await fetch_address_book())
+    if hits.any_retired and not allow_retired:
+        return refusal(hits)
     async with get_session_factory()() as session:
         repo = RoadRepository(session)
         updated = await repo.update(slug, fields)
         if updated is None:
             return {"error": "not_found", "slug": slug}
         await session.commit()
-        return {"updated": True, "slug": updated.slug, "status": updated.status}
+        return {
+            "updated": True,
+            "slug": updated.slug,
+            "status": updated.status,
+            **hint_only(hits),
+        }

@@ -37,6 +37,9 @@ AUTHORITY_RANK = _AUTHORITY_RANK  # public alias — consumed by brains' reposit
 
 CONFLICT_DUPLICATE = "duplicate"
 CONFLICT_OVERLAP = "overlap"
+CONFLICT_RETIRED_ADDRESS = "retired_address"
+# Conflict kinds that block approval until explicitly acknowledged; overlap is advisory.
+_ACK_REQUIRED_KINDS = (CONFLICT_DUPLICATE, CONFLICT_RETIRED_ADDRESS)
 
 _JSON = sa.JSON().with_variant(JSONB, "postgresql")
 
@@ -46,7 +49,9 @@ def governance_check_constraints(tablename: str) -> tuple[CheckConstraint, ...]:
     __table_args__ (avoids the mixin/__table_args__ override collision)."""
     statuses = ", ".join(f"'{s}'" for s in VALID_STATUSES)
     authorities = ", ".join(f"'{a}'" for a in VALID_AUTHORITIES)
-    kinds = ", ".join(f"'{k}'" for k in (CONFLICT_DUPLICATE, CONFLICT_OVERLAP))
+    kinds = ", ".join(
+        f"'{k}'" for k in (CONFLICT_DUPLICATE, CONFLICT_OVERLAP, CONFLICT_RETIRED_ADDRESS)
+    )
     return (
         CheckConstraint(f"status IN ({statuses})", name=f"ck_{tablename}_status"),
         CheckConstraint(f"authority IN ({authorities})", name=f"ck_{tablename}_authority"),
@@ -284,7 +289,7 @@ async def _approve_record(
         if err:
             return err
         if (
-            rec.conflict_kind == CONFLICT_DUPLICATE
+            rec.conflict_kind in _ACK_REQUIRED_KINDS
             and rec.conflict_acknowledged_at is None
             and not acknowledge_conflict
         ):
@@ -292,7 +297,7 @@ async def _approve_record(
         rec.status = STATUS_APPROVED
         rec.reviewed_by = (reviewed_by or "").strip() or APPROVER_IDENTITY
         rec.reviewed_at = datetime.now(UTC)
-        if rec.conflict_kind == CONFLICT_DUPLICATE and acknowledge_conflict:
+        if rec.conflict_kind in _ACK_REQUIRED_KINDS and acknowledge_conflict:
             rec.conflict_acknowledged_at = datetime.now(UTC)
         await session.commit()
         return {"approved": True, "record_type": record_type, "id": id, "status": rec.status}
@@ -350,7 +355,8 @@ def register_governance_tools(mcp, records: dict[str, type]) -> None:
         reviewed_by: str | None = None,
     ) -> dict:
         """Approve a proposed record (proposed→approved). APPROVER KEY ONLY.
-        A duplicate-conflict flag must be acknowledged (acknowledge_conflict=True);
+        A duplicate or retired_address conflict flag must be acknowledged
+        (acknowledge_conflict=True);
         an overlap flag is advisory and never blocks. id is int for Integer-PK record
         types (infra/code brains) or a UUID string for UUID-PK types (e.g. app_knowledge).
         reviewed_by optionally names the human reviewer (blank → the approver identity)."""

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     database_url: str | None = None
     onboard_concurrency: int = 6
+    infra_brain_url: str = "https://infra-brain.devonwatkins.com"
 
     @field_validator("mcp_access_key", "contributor_key", "read_key")
     @classmethod

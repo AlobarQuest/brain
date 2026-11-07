@@ -6,6 +6,7 @@ from src.brains.app.models import LANDING_UNKNOWN, LANDING_VALUES
 from src.brains.app.repositories.apps import AppRepository, canonical_repo_slug
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
+from src.core.address_guard import fetch_address_book, hint_only, refusal, scan
 from src.core.db import get_session_factory
 from src.core.governance import require_approver
 
@@ -49,6 +50,16 @@ def serialize_app_profile(app, coverage: dict, landing: dict | None = None) -> d
         "created_at": app.created_at.isoformat() if app.created_at else None,
         "coverage": coverage,
     }
+
+
+def _invalid_environments(environments: list | None) -> str | None:
+    """An `invalid_params` error unless each entry is an object whose `url` is a string or null."""
+    for index, env in enumerate(environments or []):
+        if not isinstance(env, dict):
+            return f"invalid_params: environments[{index}] must be an object"
+        if not isinstance(env.get("url"), str | None):
+            return f"invalid_params: environments[{index}].url must be a string or null"
+    return None
 
 
 def register_app_tools(mcp: FastMCP) -> None:
@@ -97,6 +108,7 @@ def register_app_tools(mcp: FastMCP) -> None:
         repo_path: str | None = None,
         github_repo: str | None = None,
         environments: list[dict] | None = None,
+        allow_retired: bool = False,
     ) -> dict:
         """Update structured fields on an app (name, description, tech_stack, status, tags, repo_path, deployment_url, github_repo, environments).
 
@@ -105,6 +117,9 @@ def register_app_tools(mcp: FastMCP) -> None:
 
         APPROVER KEY ONLY: the app record is approved state with no proposal path,
         so a contributor key could otherwise rewrite it without review.
+
+        A retired host address in description, deployment_url or an environment url is refused
+        unless allow_retired=True (for dated history).
         """
         if not require_approver():
             return {"error": "not_authorized", "hint": "updating an app requires the approver key"}
@@ -131,6 +146,16 @@ def register_app_tools(mcp: FastMCP) -> None:
             # counted, turning a repository that redeploys into one reading 'inert'.
             if canonical_repo_slug(fields["github_repo"]) is None:
                 return {"error": "invalid_params: github_repo must be 'owner/repo'"}
+        if (bad := _invalid_environments(environments)) is not None:
+            return {"error": bad}
+
+        # Fetched before the session opens so the HTTP call is not held inside a transaction.
+        hits = scan(
+            [description, deployment_url, *(env.get("url") for env in environments or [])],
+            await fetch_address_book(),
+        )
+        if hits.any_retired and not allow_retired:
+            return refusal(hits)
 
         async with get_session_factory()() as session:
             repo = AppRepository(session)
@@ -150,6 +175,7 @@ def register_app_tools(mcp: FastMCP) -> None:
             "name": app.name,
             "status": app.status,
             "updated": list(fields.keys()),
+            **hint_only(hits),
         }
 
     @mcp.tool()

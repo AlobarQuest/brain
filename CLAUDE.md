@@ -39,3 +39,5 @@ When writing new code, mirror the structure, naming conventions, and documentati
 style of that module.
 
 <!-- code-standards:end -->
+
+Host moves: follow `docs/operations/host-move.md` (registry, workspace CLAUDE.md, retired-hosts.toml).

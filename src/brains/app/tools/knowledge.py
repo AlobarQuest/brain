@@ -12,6 +12,7 @@ from src.brains.app.services.classifier import KNOWLEDGE_TYPES
 from src.brains.app.services.hash import compute_content_hash
 from src.brains.app.services.onboarding import run_onboarding_job
 from src.brains.app.services.openrouter import embed, extract_metadata
+from src.core.address_guard import fetch_address_book, guard_fields, hold_for_retired, scan
 from src.core.db import get_session_factory
 from src.core.governance import (
     finalize_governance,
@@ -151,6 +152,9 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 "hint": "superseding existing knowledge requires the approver key",
             }
 
+        # Fetched before the session opens so the HTTP call is not held inside a transaction.
+        hits = scan([content], await fetch_address_book())
+
         async with get_session_factory()() as session:
             app_repo = AppRepository(session)
             app = await app_repo.get_app(app_slug)
@@ -185,6 +189,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 candidate=applicability,
             )
             finalize_governance(governance, flag)  # overlap is advisory; never cancels auto-approve
+            hold_for_retired(governance, hits)  # a retired address keeps the chunk proposed
 
             chunk = await knowledge_repo.create(
                 app_id=app.id,
@@ -203,17 +208,29 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 superseded = await knowledge_repo.get_by_id(uuid.UUID(supersedes_id))
                 if not superseded or superseded.app_slug != app_slug:
                     return {"error": "invalid_params: supersedes_id must belong to the same app"}
-                await knowledge_repo.supersede(uuid.UUID(supersedes_id), chunk.id)
+                # A held replacement must not retire live guidance: the old chunk stays
+                # approved until a reviewer approves this one and deprecates it by hand.
+                if not hits.any_retired:
+                    await knowledge_repo.supersede(uuid.UUID(supersedes_id), chunk.id)
 
             await session.commit()
 
-        return {
+        response = {
             "id": str(chunk.id),
             "duplicate": False,
             "metadata_summary": metadata,
             "status": chunk.status,
-            "conflict": flag.kind if flag else None,
+            "conflict": governance.get("conflict_kind"),
+            **guard_fields(hits, held=True),
         }
+        if supersedes_id and hits.any_retired:
+            held_supersede = (
+                f"the old chunk {supersedes_id} stays approved: approving this record does "
+                "not supersede it, so the reviewer must deprecate the old chunk by hand "
+                "after approving"
+            )
+            response["note"] = "; ".join(filter(None, [response.get("note"), held_supersede]))
+        return response
 
     @mcp.tool()
     async def delete_knowledge(id: str) -> dict:
@@ -286,6 +303,10 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
                 "error": f"invalid_params: onboarding would produce {total_pending} chunks, max is {MAX_CHUNKS_PER_ONBOARD}"
             }
 
+        # Hint only: onboarding ingests repo docs full of dated history. Scanned before
+        # the session opens so the HTTP call is not held inside a transaction.
+        hits = scan([description, *provided_blobs.values()], await fetch_address_book())
+
         async with get_session_factory()() as session:
             app_repo = AppRepository(session)
 
@@ -347,6 +368,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             "app_slug": slug,
             "onboarding_status": "running",
             "message": "Onboarding started in the background. Poll onboard_status(slug) for completion.",
+            **guard_fields(hits, held=False),
         }
 
     @mcp.tool()

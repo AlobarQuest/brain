@@ -1,6 +1,8 @@
 from fastmcp import FastMCP
 
+from src.brains.infra.repositories.environments import EnvironmentRepository
 from src.brains.infra.repositories.lessons import LessonRepository
+from src.core.address_guard import guard_fields, hold_for_retired, scan
 from src.core.db import get_session_factory
 from src.core.governance import proposed_defaults, severity_auto_approve
 
@@ -63,7 +65,9 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         """Propose a new lesson (approved for an approver-key caller unless auto_approve=False;
         proposed for any other caller). A CRITICAL lesson stays proposed unless auto_approve=True.
         Use this to capture infrastructure lessons learned — things that went wrong, workarounds
-        discovered, or patterns that should be followed. severity: CRITICAL, WARN, or INFO."""
+        discovered, or patterns that should be followed. severity: CRITICAL, WARN, or INFO.
+        A lesson naming a retired host address stays proposed whatever the key; name the role
+        (e.g. prod-vps) instead of an address."""
         if severity not in ("CRITICAL", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["CRITICAL", "WARN", "INFO"]}
         data = {
@@ -81,6 +85,8 @@ def register_lesson_tools(mcp: FastMCP) -> None:
             )
         )
         async with get_session_factory()() as session:
+            hits = scan([title, content], await EnvironmentRepository(session).address_book())
+            hold_for_retired(data, hits)
             repo = LessonRepository(session)
             lesson = await repo.add(data)
             await session.commit()
@@ -89,4 +95,5 @@ def register_lesson_tools(mcp: FastMCP) -> None:
                 "id": lesson.id,
                 "title": lesson.title,
                 "status": lesson.status,
+                **guard_fields(hits, held=True),
             }

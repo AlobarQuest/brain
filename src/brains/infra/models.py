@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import TIMESTAMP, CheckConstraint, ForeignKey, Text, func
+from sqlalchemy import JSON, TIMESTAMP, CheckConstraint, Date, ForeignKey, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -86,3 +86,37 @@ class Lesson(Base, GovernanceMixin):
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default="ai-capture")
     supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
     superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
+
+
+class Environment(Base):
+    """A named environment role (e.g. ``prod-vps``) and where it currently lives.
+
+    ``addresses`` holds only the match strings, all optional:
+    ``{ipv4, ipv6, tailnet_node, tailnet_ip, hostnames: [str]}``. ``previous`` is a list of
+    ``{addresses, provider, until}`` for hosts the role has moved off. Holds no DNS names beyond
+    ``hostnames`` and no secrets. Not governed: written directly by the approver key.
+    """
+
+    __tablename__ = "environments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # unique + index: metadata then builds the unique index ix_environments_role that
+    # migration 0005 creates, rather than a separate unique constraint.
+    role: Mapped[str] = mapped_column(Text, unique=True, index=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    location: Mapped[str] = mapped_column(Text, nullable=False)
+    addresses: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    current_since: Mapped[date] = mapped_column(Date, nullable=False)
+    previous: Mapped[list[dict]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default=text("'[]'"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[str] = mapped_column(Text, nullable=False, server_default="devon")

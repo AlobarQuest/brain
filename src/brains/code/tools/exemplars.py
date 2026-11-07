@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 
 from src.brains.code.repositories.exemplars import ExemplarRepository
 from src.brains.code.repositories.roads import RoadRepository
+from src.core.address_guard import fetch_address_book, guard_fields, hold_for_retired, scan
 from src.core.db import get_session_factory
 from src.core.governance import proposed_defaults
 
@@ -20,6 +21,7 @@ def register_exemplar_tools(mcp: FastMCP) -> None:
         """Propose a canonical example for a road — the 'the clean instance to imitate is here'
         pointer (approved for an approver-key caller unless auto_approve=False; proposed for any
         other caller). location is a repo path or URL."""
+        hits = scan([label, location, note], await fetch_address_book())
         async with get_session_factory()() as session:
             if await RoadRepository(session).get_by_slug(road_slug) is None:
                 return {"error": "unknown_road", "road_slug": road_slug}
@@ -36,6 +38,13 @@ def register_exemplar_tools(mcp: FastMCP) -> None:
                     auto_approve=auto_approve,
                 )
             )
+            hold_for_retired(data, hits)
             e = await ExemplarRepository(session).add(data)
             await session.commit()
-            return {"created": True, "id": e.id, "road_slug": e.road_slug, "status": e.status}
+            return {
+                "created": True,
+                "id": e.id,
+                "road_slug": e.road_slug,
+                "status": e.status,
+                **guard_fields(hits, held=True),
+            }
