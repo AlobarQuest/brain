@@ -1,7 +1,7 @@
 # Environment roles design
 
-Status: draft, waiting for Devon to read and approve it (2026-11-07). After approval, the next step
-is an implementation plan for phases 1, 2, and 4. Phase 3 gets its own plan.
+Status: approved by Devon, 2026-11-07. The next step is an implementation plan for phases 1, 2,
+and 4. Phase 3 gets its own plan in an infrastructure session.
 
 ## Intent
 
