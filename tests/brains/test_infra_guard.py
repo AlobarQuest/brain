@@ -158,7 +158,7 @@ async def _rule_db(monkeypatch):
         "sqlite+aiosqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     async with engine.begin() as conn:
-        await conn.run_sync(Rule.__table__.create)  # type: ignore[arg-type]
+        await conn.run_sync(Rule.__table__.create)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(rules_tools_module, "get_session_factory", lambda: factory)
     async with factory() as session:
