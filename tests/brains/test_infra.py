@@ -58,6 +58,10 @@ EXPECTED_TOOLS = {
     "list_versions",
     "update_version",
     "add_version",
+    # environments
+    "list_environments",
+    "get_environment",
+    "set_environment",
     # governance
     "approve",
     "reject",

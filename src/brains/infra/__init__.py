@@ -7,6 +7,7 @@ from src.brains.infra.models import Combo, Lesson, Rule
 from src.brains.infra.repositories.rules import RuleRepository
 from src.brains.infra.services.proposals import propose_lesson, propose_rule
 from src.brains.infra.tools.combos import register_combo_tools
+from src.brains.infra.tools.environments import register_environment_tools
 from src.brains.infra.tools.lessons import register_lesson_tools
 from src.brains.infra.tools.rules import register_rule_tools
 from src.brains.infra.tools.versions import register_version_tools
@@ -23,6 +24,7 @@ def register(mcp) -> None:
     register_rule_tools(mcp)
     register_combo_tools(mcp)
     register_lesson_tools(mcp)
+    register_environment_tools(mcp)
     register_governance_tools(mcp, {"rule": Rule, "lesson": Lesson, "combo": Combo})
 
 
