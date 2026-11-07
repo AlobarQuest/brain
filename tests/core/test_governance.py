@@ -428,3 +428,42 @@ async def test_approve_int_id_against_uuid_pk_returns_invalid_id_not_raw_excepti
 
     result = await mcp.call_tool("approve", {"record_type": "uuid_rec", "id": 5})
     assert _data(result) == {"error": "invalid_id", "record_type": "uuid_rec", "id": 5}
+
+
+async def test_approve_retired_address_requires_ack(gov_engine, monkeypatch):
+    factory = async_sessionmaker(gov_engine, expire_on_commit=False)
+    async with factory() as s:
+        s.add(
+            _Rec(
+                name="r0",
+                status=g.STATUS_PROPOSED,
+                conflict_kind=g.CONFLICT_RETIRED_ADDRESS,
+                conflict_note="names a retired address",
+            )
+        )
+        await s.commit()
+    monkeypatch.setattr(db_module, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+    mcp = FastMCP("t")
+    g.register_governance_tools(mcp, {"rec": _Rec})
+
+    blocked = await mcp.call_tool("approve", {"record_type": "rec", "id": 1})
+    assert _data(blocked) == {
+        "error": "conflict_unacknowledged",
+        "conflict_note": "names a retired address",
+    }
+
+    ok = await mcp.call_tool(
+        "approve", {"record_type": "rec", "id": 1, "acknowledge_conflict": True}
+    )
+    assert _data(ok)["approved"] is True
+    async with factory() as s:
+        row = await s.get(_Rec, 1)
+        assert row is not None
+        assert row.status == g.STATUS_APPROVED
+        assert row.conflict_acknowledged_at is not None
+
+
+def test_check_constraints_allow_retired_address():
+    texts = [str(c.sqltext) for c in g.governance_check_constraints("t")]
+    assert any("'retired_address'" in t for t in texts)
