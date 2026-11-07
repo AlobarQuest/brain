@@ -7,14 +7,17 @@ registry. A caller fetches the environment payload
 as proposed (`hold_for_retired`), refuses (`refusal`), or merges `guard_fields` into
 its response.
 
-Matching is by fixed substring, ignoring case. Provider words ("Hetzner") are never match strings.
-A string that is current for any role is never treated as retired.
+Matching is by fixed string, ignoring case, at address boundaries (`_pattern`): a retired
+`100.92.138.1` does not match inside `100.92.138.19`. Provider words ("Hetzner") are never
+match strings. A string that is current for any role is never treated as retired.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
+import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -106,15 +109,31 @@ def book_from_payload(payload: dict) -> AddressBook:
     return AddressBook(current=current, retired=retired)
 
 
+# After a match: no address character, and no '.' or ':' that continues the address.
+_END = r"(?![0-9a-z-])(?![.:][0-9a-z])"
+
+
+@functools.lru_cache(maxsize=1024)
+def _pattern(match: str) -> re.Pattern[str]:
+    """`match` as a whole address: not preceded by `[0-9a-z.:-]`, not continued after.
+
+    A trailing `:<port>` still counts as a boundary, except after an IPv6 match, where
+    `::1:5` is a longer address (an IPv6 address with a port is written `[...]:port`)."""
+    port = "" if ":" in match else rf"|(?=:\d+{_END})"
+    return re.compile(rf"(?<![0-9a-z.:-]){re.escape(match)}(?:{_END}{port})", re.IGNORECASE)
+
+
 def _found(texts: list[str], table: dict[str, str]) -> tuple[tuple[str, str], ...]:
-    """Pairs whose match string occurs in a text; `texts` are already lowercased."""
-    return tuple((m, role) for m, role in table.items() if any(m.lower() in t for t in texts))
+    """Pairs whose match string occurs, at address boundaries, in a text."""
+    return tuple(
+        (m, role) for m, role in table.items() if any(_pattern(m).search(t) for t in texts)
+    )
 
 
 def scan(texts: Iterable[str | None], book: AddressBook | None) -> AddressHits:
     if book is None:
         return AddressHits((), ())
-    kept = [t.lower() for t in texts if t]
+    kept = [t for t in texts if t]
     return AddressHits(retired=_found(kept, book.retired), current=_found(kept, book.current))
 
 

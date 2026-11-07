@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from src.core import address_guard
 from src.core.address_guard import (
     AddressBook,
@@ -234,3 +236,54 @@ def test_current_wins_ignores_case_in_book():
     mixed = book_from_payload(payload)
     assert mixed.retired == {}
     assert not scan(["on 2001:db8::a"], mixed).any_retired
+
+
+BOUNDARY_BOOK = book_from_payload(
+    {
+        "roles": [
+            {
+                "role": "prod-vps",
+                "current": [],
+                "retired": [
+                    "100.92.138.1",
+                    "vps1.alobar.net",
+                    "178.156.247.239",
+                    "ubuntu-2gb-ash-1",
+                    "2001:db8::1",
+                ],
+            }
+        ]
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "tailnet 100.92.138.19",
+        "ssh ovh-vps1.alobar.net",
+        "ssh ubuntu-2gb-ash-10",
+        "see 178.156.247.2390",
+        "v6 2001:db8::1:5",
+        "host 178.156.247.239.example.com",
+    ],
+)
+def test_scan_needs_a_boundary(text):
+    assert scan([text], BOUNDARY_BOOK).retired == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("see 178.156.247.239.", "178.156.247.239"),
+        ("http://178.156.247.239:8000/x", "178.156.247.239"),
+        ("(178.156.247.239)", "178.156.247.239"),
+        ("ssh ubuntu-2gb-ash-1 now", "ubuntu-2gb-ash-1"),
+        ("SSH UBUNTU-2GB-ASH-1", "ubuntu-2gb-ash-1"),
+        ("https://vps1.alobar.net:443.", "vps1.alobar.net"),
+        ("root@100.92.138.1:22", "100.92.138.1"),
+        ("[2001:db8::1]:8000", "2001:db8::1"),
+    ],
+)
+def test_scan_matches_at_a_boundary(text, match):
+    assert scan([text], BOUNDARY_BOOK).retired == ((match, "prod-vps"),)
