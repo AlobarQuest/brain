@@ -3,6 +3,7 @@
 from datetime import date
 
 import pytest
+import sqlalchemy as sa
 from fastmcp import FastMCP
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -285,3 +286,26 @@ async def test_removing_a_current_key_rotates(mcp):
         {"addresses": ADDRS, "provider": "ovh", "until": date.today().isoformat()}
     ]
     assert await _retired() == ["100.92.138.19"]
+
+
+def test_model_declares_the_migrations_role_index():
+    # Migration 0005 creates the unique index ix_environments_role and no unique constraint.
+    table = Environment.__table__
+    (index,) = table.indexes
+    assert index.name == "ix_environments_role"
+    assert index.unique is True
+    assert [c.name for c in index.columns] == ["role"]
+    assert not [c for c in table.constraints if isinstance(c, sa.UniqueConstraint)]
+
+
+async def test_previous_has_a_server_default(mcp):
+    async with env_tools_module.get_session_factory()() as session:
+        await session.execute(
+            sa.text(
+                "INSERT INTO environments (role, description, provider, location, addresses,"
+                " current_since) VALUES ('r', 'd', 'p', 'l', '{}', '2026-01-01')"
+            )
+        )
+        await session.commit()
+        env = await EnvironmentRepository(session).get("r")
+    assert env is not None and env.previous == []

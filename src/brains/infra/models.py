@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, TIMESTAMP, CheckConstraint, Date, ForeignKey, Text, func
+from sqlalchemy import JSON, TIMESTAMP, CheckConstraint, Date, ForeignKey, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -100,7 +100,9 @@ class Environment(Base):
     __tablename__ = "environments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    role: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # unique + index: metadata then builds the unique index ix_environments_role that
+    # migration 0005 creates, rather than a separate unique constraint.
+    role: Mapped[str] = mapped_column(Text, unique=True, index=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     location: Mapped[str] = mapped_column(Text, nullable=False)
@@ -109,7 +111,10 @@ class Environment(Base):
     )
     current_since: Mapped[date] = mapped_column(Date, nullable=False)
     previous: Mapped[list[dict]] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=list,
+        server_default=text("'[]'"),
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
