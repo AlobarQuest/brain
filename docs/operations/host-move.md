@@ -16,6 +16,8 @@ You need:
 
 - The approver key for Infra Brain. Fetch it from Bitwarden Secrets Manager (BWS) at call time. The BWS token is in the Keychain at service `Claude`, account `BWS_ACCESS_TOKEN_BRAIN_OPS`, and the secret UUIDs are in `.bws-secrets.toml`. Pass `--color no` to every `bws` call that you parse. Don't print the key or paste it into a prompt.
 - The new host's addresses: `ipv4`, and where they exist, `ipv6`, `tailnet_node`, `tailnet_ip`, and `hostnames`. Use addresses only. The registry doesn't accept DNS names in the address fields.
+
+  `ipv4`, `ipv6`, `tailnet_node`, and `tailnet_ip` are each one non-empty string. `hostnames` is a list of strings, even when there's only one, for example `["ubuntu-2gb-ash-1"]`. The guard matches `tailnet_node` and every hostname as a substring, so each one must be at least 4 characters long and contain a digit, `.`, `:`, or `-`. A plain name such as `ubuntu` is refused, because it would hold most records in every brain.
 - The role name. Run `list_environments` on Infra Brain to see the roles.
 
 ## Move the role
@@ -53,9 +55,15 @@ You need:
 
 1. Wait five minutes. App Brain and Code Brain cache the list for 300 seconds, and they retry a failed fetch after 30 seconds.
 
-1. Probe one write on each of App Brain and Code Brain with a record that names an old address. Each write must come back as `proposed` with `conflict_kind` set to `retired_address`.
+1. Probe one write on each brain with a record that names an old address:
 
-1. Reject both probe records so they don't stay in the review queue. Approving a record that holds a retired address needs `acknowledge_conflict=True`, so a rejection is the only action you need here.
+   - Infra Brain: `add_lesson`
+   - App Brain: `capture_knowledge`
+   - Code Brain: `add_lesson`
+
+   Each write must come back as `proposed` with `conflict_kind` set to `retired_address`. Infra Brain reads the registry directly, so its probe works at once. App Brain and Code Brain need the five-minute wait.
+
+1. Reject all three probe records so they don't stay in the review queue. Approving a record that holds a retired address needs `acknowledge_conflict=True`, so a rejection is the only action you need here.
 
 ## What happens to later writes
 
@@ -70,7 +78,7 @@ Use `allow_retired=True` only when the record is about the retired host, for exa
 
 Don't replace dated history with the new address. A sentence such as "Moved from Hetzner on 2026-10-23" is true as written, and rewriting it destroys the record.
 
-Phase 3 of the environment-roles work, the infrastructure session that covers machine-level names, will add the list of references that must stay literal. Until that list exists, treat only dated history as literal and ask Devon about anything else.
+Phase 3 of the environment-roles work, the infrastructure session that covers machine-level names, will add the list of references that must stay literal. Until that list exists, treat only dated history as literal and ask the registry owner (the approver) about anything else.
 
 ## Related
 
