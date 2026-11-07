@@ -1,7 +1,11 @@
+import json
+
 from fastmcp import FastMCP
 
 from src.brains.infra.models import Rule
+from src.brains.infra.repositories.environments import EnvironmentRepository
 from src.brains.infra.repositories.rules import RuleRepository
+from src.core.address_guard import guard_fields, hold_for_retired, refusal, scan
 from src.core.db import get_session_factory
 from src.core.governance import (
     AUTHORITY_REQUIRED,
@@ -102,6 +106,11 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 candidate={"category": category, "source_app": source_app},
             )
             finalize_governance(data, flag)  # duplicate cancels auto-approve; overlap is advisory
+            hits = scan(
+                [rule, reason, json.dumps(check) if check else None],
+                await EnvironmentRepository(session).address_book(),
+            )
+            hold_for_retired(data, hits)
             repo = RuleRepository(session)
             r = await repo.add(data)
             await session.commit()
@@ -111,7 +120,8 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "severity": r.severity,
                 "category": r.category,
                 "status": r.status,
-                "conflict": flag.kind if flag else None,
+                "conflict": data.get("conflict_kind"),
+                **guard_fields(hits),
             }
 
     @mcp.tool()
@@ -123,11 +133,13 @@ def register_rule_tools(mcp: FastMCP) -> None:
         source_app: str | None = None,
         check: dict | None = None,
         updated_by: str = "ai-capture",
+        allow_retired: bool = False,
     ) -> dict:
         """Update an existing rule's fields by id. The rule text itself cannot be changed
         (retire + add a new rule instead). severity, if given, must be BLOCK, WARN, or INFO.
         Updating a required-authority rule requires the approver key; informational/
-        recommended rules can be updated by a contributor key as before."""
+        recommended rules can be updated by a contributor key as before. A change that names a
+        retired host address is refused unless allow_retired=True (for dated history)."""
         if severity is not None and severity not in ("BLOCK", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}
         fields = {
@@ -156,6 +168,12 @@ def register_rule_tools(mcp: FastMCP) -> None:
                     "error": "not_authorized",
                     "hint": "updating a required-authority rule requires the approver key",
                 }
+            hits = scan(
+                [reason, source_app, json.dumps(check) if check else None],
+                await EnvironmentRepository(session).address_book(),
+            )
+            if hits.any_retired and not allow_retired:
+                return refusal(hits)
             updated = await repo.update(id, fields, updated_by=updated_by)
             if updated is None:
                 return {"error": "not_found", "id": id}
@@ -165,6 +183,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "id": updated.id,
                 "severity": updated.severity,
                 "category": updated.category,
+                **{k: v for k, v in guard_fields(hits).items() if k == "hint"},
             }
 
     @mcp.tool()

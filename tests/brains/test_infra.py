@@ -16,6 +16,8 @@ import src.brains.infra.tools.rules as rules_tools_module
 import src.core.db as db_module
 import src.core.governance as governance_module
 from src.brains.infra.models import Combo, Lesson, Rule
+from src.brains.infra.repositories.environments import EnvironmentRepository
+from src.core.address_guard import AddressBook
 from src.core.config import BrainType
 from src.core.registry import Capabilities, load_brain
 
@@ -27,7 +29,7 @@ from src.core.registry import Capabilities, load_brain
 def test_infra_capabilities():
     brain = load_brain(BrainType.INFRA)
     assert brain.capabilities.embeddings is False
-    assert brain.capabilities.auth_exact == ("/api/health",)
+    assert brain.capabilities.auth_exact == ("/api/health", "/api/environments/addresses")
     assert brain.capabilities.auth_prefixes == ()
 
 
@@ -251,7 +253,7 @@ async def test_api_proposes_lesson_with_contributor_key(monkeypatch):
 
     async def fake_propose_lesson(session, **kwargs):
         assert kwargs["authority"] == "recommended"
-        return _FakeLesson(), None
+        return _FakeLesson(), None, {}
 
     monkeypatch.setattr(infra, "propose_lesson", fake_propose_lesson)
     transport = httpx.ASGITransport(app=app)
@@ -341,6 +343,16 @@ async def infra_db(monkeypatch):
     monkeypatch.setattr(combos_tools_module, "get_session_factory", lambda: factory)
     yield factory
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _no_address_registry(monkeypatch):
+    """These tests have no environments table; the guard sees an empty book."""
+
+    async def empty_book(self):
+        return AddressBook(current={}, retired={})
+
+    monkeypatch.setattr(EnvironmentRepository, "address_book", empty_book)
 
 
 def _infra_mcp() -> FastMCP:

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.brains.infra.models import Environment
+from src.core.address_guard import AddressBook, book_from_payload, payload_from_environments
 
 # Current-side match strings: a change to any of these means the role moved hosts.
 # (A hostname edit alone is not a move.)
@@ -17,6 +18,10 @@ class EnvironmentRepository:
     async def list_all(self) -> list[Environment]:
         result = await self.session.execute(select(Environment).order_by(Environment.role))
         return list(result.scalars().all())
+
+    async def address_book(self) -> AddressBook:
+        """The retired/current address lookup, read in this repository's own session."""
+        return book_from_payload(payload_from_environments(await self.list_all()))
 
     async def get(self, role: str) -> Environment | None:
         result = await self.session.execute(select(Environment).where(Environment.role == role))

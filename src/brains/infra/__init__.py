@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from src.brains.infra.models import Combo, Lesson, Rule
+from src.brains.infra.repositories.environments import EnvironmentRepository
 from src.brains.infra.repositories.rules import RuleRepository
 from src.brains.infra.services.proposals import propose_lesson, propose_rule
 from src.brains.infra.tools.combos import register_combo_tools
@@ -11,12 +12,15 @@ from src.brains.infra.tools.environments import register_environment_tools
 from src.brains.infra.tools.lessons import register_lesson_tools
 from src.brains.infra.tools.rules import register_rule_tools
 from src.brains.infra.tools.versions import register_version_tools
+from src.core.address_guard import payload_from_environments
 from src.core.db import get_session_factory
 from src.core.governance import register_governance_tools
 from src.core.proposed import proposed_fields, register_proposed_route
 from src.core.registry import Capabilities
 
-capabilities = Capabilities(embeddings=False, auth_exact=("/api/health",), auth_prefixes=())
+capabilities = Capabilities(
+    embeddings=False, auth_exact=("/api/health", "/api/environments/addresses"), auth_prefixes=()
+)
 
 
 def register(mcp) -> None:
@@ -100,6 +104,13 @@ def register_routes(app) -> None:
         },
     )
 
+    @app.get("/api/environments/addresses")
+    async def environment_addresses_api():
+        """Public (no key): role names and match strings only, nothing else."""
+        async with get_session_factory()() as session:
+            rows = await EnvironmentRepository(session).list_all()
+            return payload_from_environments(rows)
+
     @app.get("/api/rules")
     async def list_rules_api(
         category: str | None = None,
@@ -116,17 +127,17 @@ def register_routes(app) -> None:
     @app.post("/api/proposals/lessons", status_code=201)
     async def propose_lesson_api(body: InfraLessonProposal):
         async with get_session_factory()() as session:
-            lesson, error = await propose_lesson(session, **body.model_dump())
+            lesson, error, guard = await propose_lesson(session, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()
-            return {"created": True, "lesson": _lesson_rest(lesson)}
+            return {"created": True, "lesson": _lesson_rest(lesson), **guard}
 
     @app.post("/api/proposals/rules", status_code=201)
     async def propose_rule_api(body: InfraRuleProposal):
         async with get_session_factory()() as session:
-            rule, error = await propose_rule(session, **body.model_dump())
+            rule, error, guard = await propose_rule(session, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()
-            return {"created": True, "rule": _rule_rest(rule)}
+            return {"created": True, "rule": _rule_rest(rule), **guard}
