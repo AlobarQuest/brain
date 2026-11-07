@@ -16,10 +16,10 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         tags: list[str] | None = None,
         source_app: str | None = None,
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
-        """Propose a lesson learned about a code pattern (status=proposed by default; approved
-        only with the approver key and auto_approve=True). road_slug=None means a general lesson
+        """Propose a lesson learned about a code pattern (approved for an approver-key caller unless
+        auto_approve=False; proposed for any other caller). road_slug=None means a general lesson
         not tied to one road."""
         async with get_session_factory()() as session:
             if road_slug is not None:

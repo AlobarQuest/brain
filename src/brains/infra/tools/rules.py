@@ -9,6 +9,7 @@ from src.core.governance import (
     find_conflicts,
     proposed_defaults,
     require_approver,
+    rule_auto_approve,
 )
 
 
@@ -67,12 +68,13 @@ def register_rule_tools(mcp: FastMCP) -> None:
         source_app: str | None = None,
         check: dict | None = None,
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
-        """Propose a new infrastructure rule (status=proposed by default; approved only with the
-        approver key and auto_approve=True). severity must be BLOCK, WARN, or INFO. Use BLOCK for
-        deployment-breaking rules. A candidate flagged as a duplicate of an approved required rule
-        cannot auto-approve; an overlap is advisory."""
+        """Propose a new infrastructure rule (approved for an approver-key caller unless
+        auto_approve=False; proposed for any other caller). A BLOCK rule stays proposed unless
+        auto_approve=True. severity must be BLOCK, WARN, or INFO. Use BLOCK for deployment-breaking
+        rules. A candidate flagged as a duplicate of an approved required rule cannot auto-approve;
+        an overlap is advisory."""
         if severity not in ("BLOCK", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}
         applicability = {"category": category, "source_app": source_app}
@@ -86,7 +88,9 @@ def register_rule_tools(mcp: FastMCP) -> None:
         }
         data.update(
             proposed_defaults(
-                proposed_by=proposed_by, applicability=applicability, auto_approve=auto_approve
+                proposed_by=proposed_by,
+                applicability=applicability,
+                auto_approve=rule_auto_approve(auto_approve, severity),
             )
         )
         async with get_session_factory()() as session:

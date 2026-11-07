@@ -58,11 +58,11 @@ def register_lesson_tools(mcp: FastMCP) -> None:
         tags: list[str] | None = None,
         severity: str = "INFO",
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
-        """Propose a new lesson (status=proposed by default; approved only with the approver key
-        and auto_approve=True). Use this to capture infrastructure lessons learned — things that
-        went wrong, workarounds discovered, or patterns that should be followed. severity:
+        """Propose a new lesson (approved for an approver-key caller unless auto_approve=False;
+        proposed for any other caller). Use this to capture infrastructure lessons learned — things
+        that went wrong, workarounds discovered, or patterns that should be followed. severity:
         CRITICAL, WARN, or INFO."""
         if severity not in ("CRITICAL", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["CRITICAL", "WARN", "INFO"]}

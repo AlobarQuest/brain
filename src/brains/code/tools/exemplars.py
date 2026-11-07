@@ -15,11 +15,11 @@ def register_exemplar_tools(mcp: FastMCP) -> None:
         location: str,
         note: str | None = None,
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
         """Propose a canonical example for a road — the 'the clean instance to imitate is here'
-        pointer (status=proposed by default; approved only with the approver key and
-        auto_approve=True). location is a repo path or URL."""
+        pointer (approved for an approver-key caller unless auto_approve=False; proposed for any
+        other caller). location is a repo path or URL."""
         async with get_session_factory()() as session:
             if await RoadRepository(session).get_by_slug(road_slug) is None:
                 return {"error": "unknown_road", "road_slug": road_slug}

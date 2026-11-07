@@ -222,6 +222,39 @@ def test_proposed_defaults_approver_auto_approves(monkeypatch):
     assert d["reviewed_at"] is not None
 
 
+def test_proposed_defaults_approver_approves_when_unset(monkeypatch):
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+    d = g.proposed_defaults(proposed_by="devon", applicability={})
+    assert d["status"] == "approved"  # the approver proposing to itself is pointless
+    assert d["reviewed_by"] == g.APPROVER_IDENTITY
+
+
+def test_proposed_defaults_approver_can_opt_out(monkeypatch):
+    monkeypatch.setattr(g, "require_approver", lambda: True)
+    d = g.proposed_defaults(proposed_by="devon", applicability={}, auto_approve=False)
+    assert d["status"] == "proposed"
+    assert "reviewed_by" not in d
+
+
+def test_proposed_defaults_contributor_stays_proposed_when_unset(monkeypatch):
+    monkeypatch.setattr(g, "require_approver", lambda: False)
+    d = g.proposed_defaults(proposed_by="agent-x", applicability={})
+    assert d["status"] == "proposed"
+
+
+@pytest.mark.parametrize(
+    ("severity", "requested", "expected"),
+    [
+        ("BLOCK", None, False),  # a BLOCK rule waits for an explicit yes
+        ("BLOCK", True, True),
+        ("WARN", None, None),  # other severities keep the general default
+        ("INFO", False, False),
+    ],
+)
+def test_rule_auto_approve(severity, requested, expected):
+    assert g.rule_auto_approve(requested, severity) is expected
+
+
 def test_finalize_governance_duplicate_cancels_auto_approve():
     d = {"status": "approved", "reviewed_by": "devon", "reviewed_at": "t"}
     g.finalize_governance(d, g.ConflictFlag(g.CONFLICT_DUPLICATE, "dup of #1"))

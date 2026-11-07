@@ -577,11 +577,12 @@ async def test_capture_knowledge_overlap_conflict_is_advisory_and_approves_witho
             "knowledge_type": "deployment",
             "content": "updated deployment notes, different content",
             "proposed_by": "agent-x",
+            "auto_approve": False,
         },
     )
     body = _data(added)
     assert body["conflict"] == "overlap"
-    assert body["status"] == "proposed"  # auto_approve was not requested; overlap is advisory
+    assert body["status"] == "proposed"  # opted out of auto-approve; overlap is advisory
     new_id = body["id"]
 
     approved = await mcp.call_tool("approve", {"record_type": "app_knowledge", "id": new_id})
@@ -930,3 +931,15 @@ async def test_reonboard_replace_existing_no_blackout(app_db, onboarding_env):
     new_row = by_active[True]
     assert old_row.status == "deprecated"
     assert new_row.status == "approved"
+
+
+async def test_capture_knowledge_approver_default_approves(
+    app_db, fake_app_and_embeddings, monkeypatch
+):
+    monkeypatch.setattr(governance_module, "require_approver", lambda: True)
+    mcp = _app_mcp()
+    added = await mcp.call_tool(
+        "capture_knowledge",
+        {"app_slug": "widget", "knowledge_type": "deployment", "content": "approver note"},
+    )
+    assert _data(added)["status"] == "approved"
