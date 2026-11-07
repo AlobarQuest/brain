@@ -7,12 +7,13 @@ registry. A caller fetches the environment payload
 as proposed (`hold_for_retired`), refuses (`refusal`), or merges `guard_fields` into
 its response.
 
-Matching is by fixed substring. Provider words ("Hetzner") are never match strings.
+Matching is by fixed substring, ignoring case. Provider words ("Hetzner") are never match strings.
 A string that is current for any role is never treated as retired.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Iterable
@@ -105,13 +106,14 @@ def book_from_payload(payload: dict) -> AddressBook:
 
 
 def _found(texts: list[str], table: dict[str, str]) -> tuple[tuple[str, str], ...]:
-    return tuple((m, role) for m, role in table.items() if any(m in t for t in texts))
+    """Pairs whose match string occurs in a text; `texts` are already lowercased."""
+    return tuple((m, role) for m, role in table.items() if any(m.lower() in t for t in texts))
 
 
 def scan(texts: Iterable[str | None], book: AddressBook | None) -> AddressHits:
     if book is None:
         return AddressHits((), ())
-    kept = [t for t in texts if t]
+    kept = [t.lower() for t in texts if t]
     return AddressHits(retired=_found(kept, book.retired), current=_found(kept, book.current))
 
 
@@ -158,6 +160,11 @@ def guard_fields(hits: AddressHits, *, held: bool) -> dict:
     return fields
 
 
+def hint_only(hits: AddressHits) -> dict:
+    """Just the current-address hint, for a write that already refused or allowed a retired hit."""
+    return {k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"}
+
+
 def refusal(hits: AddressHits) -> dict:
     return {
         "error": "retired_address",
@@ -202,8 +209,13 @@ async def fetch_address_book() -> AddressBook | None:
     if _cache is not None and _clock() < _cache[0]:
         return _cache[1]
     try:
-        book: AddressBook | None = await _fetch_book()
+        # httpx's timeout applies per phase; this caps the whole request.
+        async with asyncio.timeout(_FETCH_TIMEOUT_S):
+            book: AddressBook | None = await _fetch_book()
         ttl = CACHE_TTL_S
+    except TimeoutError:
+        logger.warning("address guard skipped: no answer within %ss", _FETCH_TIMEOUT_S)
+        book, ttl = None, FAILURE_TTL_S
     except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError) as exc:
         logger.warning("address guard skipped: %s", exc)
         book, ttl = None, FAILURE_TTL_S

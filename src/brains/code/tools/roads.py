@@ -7,7 +7,7 @@ from src.brains.code.repositories.lessons import LessonRepository
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
 from src.brains.code.tools.serialize import exemplar_dict, lesson_dict, road_dict, rule_dict
-from src.core.address_guard import fetch_address_book, guard_fields, refusal, scan
+from src.core.address_guard import fetch_address_book, hint_only, refusal, scan
 from src.core.db import get_session_factory
 
 CATEGORIES = {"application", "data", "api", "frontend", "delivery-ops", "quality", "security", "ai"}
@@ -212,7 +212,7 @@ async def _do_add_road(
         return {
             "created": True,
             "slug": road.slug,
-            **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
+            **hint_only(hits),
         }
 
 
@@ -274,5 +274,5 @@ async def _do_update_road(
             "updated": True,
             "slug": updated.slug,
             "status": updated.status,
-            **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
+            **hint_only(hits),
         }

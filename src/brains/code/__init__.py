@@ -22,6 +22,7 @@ from src.brains.code.tools.roads import register_road_tools
 from src.brains.code.tools.rules import register_rule_tools
 from src.brains.code.tools.search import register_search_tools
 from src.brains.code.tools.serialize import exemplar_dict, lesson_dict, road_dict, rule_dict
+from src.core.address_guard import fetch_address_book
 from src.core.db import get_session_factory
 from src.core.governance import register_governance_tools
 from src.core.proposed import proposed_fields, register_proposed_route
@@ -151,8 +152,10 @@ def register_routes(app) -> None:
 
     @app.post("/api/proposals/lessons", status_code=201)
     async def propose_lesson_api(body: CodeLessonProposal):
+        # Fetched before the session opens so the HTTP call is not held inside a transaction.
+        book = await fetch_address_book()
         async with get_session_factory()() as session:
-            lesson, error, guard = await propose_lesson(session, **body.model_dump())
+            lesson, error, guard = await propose_lesson(session, book=book, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()
@@ -160,8 +163,10 @@ def register_routes(app) -> None:
 
     @app.post("/api/proposals/rules", status_code=201)
     async def propose_rule_api(body: CodeRuleProposal):
+        # Fetched before the session opens so the HTTP call is not held inside a transaction.
+        book = await fetch_address_book()
         async with get_session_factory()() as session:
-            rule, error, guard = await propose_rule(session, **body.model_dump())
+            rule, error, guard = await propose_rule(session, book=book, **body.model_dump())
             if error is not None:
                 raise HTTPException(status_code=400, detail=error)
             await session.commit()

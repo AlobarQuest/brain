@@ -220,7 +220,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             "duplicate": False,
             "metadata_summary": metadata,
             "status": chunk.status,
-            "conflict": flag.kind if flag else None,
+            "conflict": governance.get("conflict_kind"),
             **guard_fields(hits, held=True),
         }
         if supersedes_id and hits.any_retired:

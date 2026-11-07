@@ -5,7 +5,7 @@ from src.brains.code.models import Rule
 from src.brains.code.repositories.lessons import LessonRepository
 from src.brains.code.repositories.roads import RoadRepository
 from src.brains.code.repositories.rules import RuleRepository
-from src.core.address_guard import fetch_address_book, guard_fields, scan
+from src.core.address_guard import AddressBook, guard_fields, scan
 from src.core.governance import (
     VALID_AUTHORITIES,
     finalize_governance,
@@ -14,10 +14,10 @@ from src.core.governance import (
 )
 
 
-async def _guard(texts: list[str | None]) -> dict:
+def _guard(texts: list[str | None], book: AddressBook | None) -> dict:
     """Address-guard fields for a REST proposal. Proposals are already held as proposed, so
     this only reports: no conflict_kind is set for a retired address."""
-    return guard_fields(scan(texts, await fetch_address_book()), held=False)
+    return guard_fields(scan(texts, book), held=False)
 
 
 async def propose_lesson(
@@ -30,6 +30,7 @@ async def propose_lesson(
     source_app: str | None = None,
     proposed_by: str | None = None,
     authority: str = "informational",
+    book: AddressBook | None,
 ) -> tuple[Any | None, dict | None, dict]:
     if authority not in VALID_AUTHORITIES:
         return None, {"error": "invalid_authority", "allowed": list(VALID_AUTHORITIES)}, {}
@@ -50,7 +51,7 @@ async def propose_lesson(
         )
     )
     data["authority"] = authority
-    guard = await _guard([title, content])
+    guard = _guard([title, content], book)
     lesson = await LessonRepository(session).add(data)
     return lesson, None, guard
 
@@ -69,6 +70,7 @@ async def propose_rule(
     bad_example: str | None = None,
     proposed_by: str | None = None,
     authority: str = "informational",
+    book: AddressBook | None,
 ) -> tuple[Any | None, dict | None, dict]:
     if severity not in ("BLOCK", "WARN", "INFO"):
         return None, {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}, {}
@@ -105,8 +107,8 @@ async def propose_rule(
         candidate=applicability,
     )
     finalize_governance(data, flag)
-    guard = await _guard(
-        [rule, reason, good_example, bad_example, json.dumps(check) if check else None]
+    guard = _guard(
+        [rule, reason, good_example, bad_example, json.dumps(check) if check else None], book
     )
     proposed = await RuleRepository(session).add(data)
     return proposed, None, guard

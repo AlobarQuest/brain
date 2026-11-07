@@ -78,6 +78,7 @@ async def test_capture_retired_held_with_approver_and_auto_approve(
 
     assert body["status"] == "proposed"
     assert body["retired_address"] == [{"match": RETIRED, "role": "prod-vps"}]
+    assert body["conflict"] == "retired_address"
     assert "prod-vps" in body["note"] and RETIRED in body["note"]
     assert "held as proposed" in body["note"]
     async with app_db() as session:

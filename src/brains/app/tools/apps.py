@@ -6,7 +6,7 @@ from src.brains.app.models import LANDING_UNKNOWN, LANDING_VALUES
 from src.brains.app.repositories.apps import AppRepository, canonical_repo_slug
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
-from src.core.address_guard import fetch_address_book, guard_fields, refusal, scan
+from src.core.address_guard import fetch_address_book, hint_only, refusal, scan
 from src.core.db import get_session_factory
 from src.core.governance import require_approver
 
@@ -163,7 +163,7 @@ def register_app_tools(mcp: FastMCP) -> None:
             "name": app.name,
             "status": app.status,
             "updated": list(fields.keys()),
-            **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
+            **hint_only(hits),
         }
 
     @mcp.tool()

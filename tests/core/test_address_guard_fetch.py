@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 
 import httpx
 import pytest
@@ -139,4 +141,21 @@ async def test_malformed_infra_brain_url_returns_none(clock, caplog, monkeypatch
     monkeypatch.setenv("INFRA_BRAIN_URL", "http://host:notaport")
     with caplog.at_level(logging.WARNING, logger=address_guard.logger.name):
         assert await fetch_address_book() is None
+    assert "address guard skipped" in caplog.text
+
+
+@respx.mock
+async def test_fetch_stalled_request_hits_hard_deadline(clock, caplog, monkeypatch):
+    """httpx's timeout is per phase; a server that keeps the request alive is cut off anyway."""
+    monkeypatch.setattr(address_guard, "_FETCH_TIMEOUT_S", 0.05)
+
+    async def stall(request):
+        await asyncio.sleep(2)
+        return httpx.Response(200, json=PAYLOAD)
+
+    respx.get(URL).mock(side_effect=stall)
+    started = time.perf_counter()
+    with caplog.at_level(logging.WARNING, logger=address_guard.logger.name):
+        assert await fetch_address_book() is None
+    assert time.perf_counter() - started < 1
     assert "address guard skipped" in caplog.text

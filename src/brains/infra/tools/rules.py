@@ -5,7 +5,7 @@ from fastmcp import FastMCP
 from src.brains.infra.models import Rule
 from src.brains.infra.repositories.environments import EnvironmentRepository
 from src.brains.infra.repositories.rules import RuleRepository
-from src.core.address_guard import guard_fields, hold_for_retired, refusal, scan
+from src.core.address_guard import guard_fields, hint_only, hold_for_retired, refusal, scan
 from src.core.db import get_session_factory
 from src.core.governance import (
     AUTHORITY_REQUIRED,
@@ -183,7 +183,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "id": updated.id,
                 "severity": updated.severity,
                 "category": updated.category,
-                **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
+                **hint_only(hits),
             }
 
     @mcp.tool()

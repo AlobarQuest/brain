@@ -42,7 +42,7 @@ _GUARDED_MODULES = (
     rules_tools_module,
     exemplars_tools_module,
     roads_tools_module,
-    proposals_module,
+    code_module,
 )
 
 
@@ -241,3 +241,56 @@ async def test_code_rest_proposal_hint_only(monkeypatch):
     assert "conflict_kind" not in _RestRepo.added[0]
     assert body["retired_address"] == [{"match": RETIRED, "role": "prod-vps"}]
     assert code_module  # route lives in the package under test
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "repo_attr"),
+    [
+        ("/api/proposals/lessons", {"title": "T", "content": "c"}, "LessonRepository"),
+        (
+            "/api/proposals/rules",
+            {
+                "road_slug": "meta-discipline",
+                "severity": "WARN",
+                "category": "deploy",
+                "rule": "r",
+                "reason": "x",
+            },
+            "RuleRepository",
+        ),
+    ],
+)
+async def test_code_rest_proposal_fetches_book_before_session_opens(
+    monkeypatch, path, payload, repo_attr
+):
+    app = base._code_app(monkeypatch)
+    events: list[str] = []
+
+    async def fetch():
+        events.append("fetch")
+        return BOOK
+
+    class _RecordingSession(base._FakeSession):
+        async def __aenter__(self):
+            events.append("session")
+            return self
+
+    class _Repo:
+        def __init__(self, session):
+            pass
+
+        async def add(self, data):
+            return base._FakeLesson() if repo_attr == "LessonRepository" else base._FakeRule()
+
+    async def no_conflict(*a, **k):
+        return None
+
+    monkeypatch.setattr(code_module, "fetch_address_book", fetch)
+    monkeypatch.setattr(code_module, "get_session_factory", lambda: _RecordingSession)
+    monkeypatch.setattr(proposals_module, repo_attr, _Repo)
+    monkeypatch.setattr(proposals_module, "RoadRepository", base._FoundRoadRepo)
+    monkeypatch.setattr(proposals_module, "find_conflicts", no_conflict)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        resp = await c.post(path, headers={"x-brain-key": "b" * 64}, json=payload)
+    assert resp.status_code == 201, resp.text
+    assert events == ["fetch", "session"]

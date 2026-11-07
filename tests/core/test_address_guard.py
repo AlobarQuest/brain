@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from src.core import address_guard
 from src.core.address_guard import (
     AddressBook,
     AddressHits,
@@ -188,3 +189,29 @@ def test_payload_previous_without_addresses_and_none_previous():
     ]
     a, b = payload_from_environments(rows)["roles"]
     assert a["retired"] == [] and b["retired"] == []
+
+
+def test_scan_is_case_insensitive_and_reports_stored_match():
+    mixed = book_from_payload(
+        {
+            "roles": [
+                {
+                    "role": "prod-vps",
+                    "current": ["2001:db8::a"],
+                    "retired": ["2001:db8::bad", "Old-Host-1.example"],
+                }
+            ]
+        }
+    )
+    hits = scan(["ssh OLD-HOST-1.EXAMPLE via 2001:DB8::BAD and 2001:DB8::A"], mixed)
+    assert hits.retired == (
+        ("2001:db8::bad", "prod-vps"),
+        ("Old-Host-1.example", "prod-vps"),
+    )
+    assert hits.current == (("2001:db8::a", "prod-vps"),)
+
+
+def test_hint_only_keeps_just_the_hint():
+    hits = scan(["178.156.247.239 and 40.160.102.182"], book())
+    assert address_guard.hint_only(hits) == {"hint": guard_fields(hits, held=False)["hint"]}
+    assert address_guard.hint_only(scan(["178.156.247.239"], book())) == {}
