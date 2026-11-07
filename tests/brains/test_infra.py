@@ -899,3 +899,21 @@ async def test_seed_governance_dicts_include_governance_keys():
     assert stamp["proposed_by"] == "seed"
     assert stamp["reviewed_by"] == "seed"
     assert stamp["reviewed_at"] is not None
+
+
+@pytest.mark.parametrize(("severity", "expected"), [("BLOCK", "proposed"), ("WARN", "approved")])
+async def test_add_rule_approver_default_holds_only_block_rules(
+    infra_db, monkeypatch, severity, expected
+):
+    monkeypatch.setattr(governance_module, "require_approver", lambda: True)
+    mcp = _infra_mcp()
+    added = await mcp.call_tool(
+        "add_rule",
+        {
+            "severity": severity,
+            "category": "deploy",
+            "rule": f"approver-default-{severity}",
+            "reason": "candidate",
+        },
+    )
+    assert _data(added)["status"] == expected

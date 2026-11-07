@@ -1142,3 +1142,23 @@ async def test_retire_rule_succeeds_with_approver_key(code_db, monkeypatch):
         rule = await session.get(Rule, seed_id)
         assert rule.retired_at is not None
         assert rule.status == "deprecated"
+
+
+@pytest.mark.parametrize(("severity", "expected"), [("BLOCK", "proposed"), ("WARN", "approved")])
+async def test_add_rule_approver_default_holds_only_block_rules(
+    code_db, monkeypatch, severity, expected
+):
+    monkeypatch.setattr(governance_module, "require_approver", lambda: True)
+    await _seed_road(code_db, slug=f"road-default-{severity.lower()}")
+    mcp = _code_mcp()
+    added = await mcp.call_tool(
+        "add_rule",
+        {
+            "road_slug": f"road-default-{severity.lower()}",
+            "severity": severity,
+            "category": "quality",
+            "rule": f"approver-default-{severity}",
+            "reason": "candidate",
+        },
+    )
+    assert _data(added)["status"] == expected

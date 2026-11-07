@@ -101,7 +101,10 @@ def presented_key() -> str | None:
 def require_approver() -> bool:
     from src.core.config import get_settings
 
-    return approver_ok(presented_key(), get_settings().mcp_access_key)
+    presented = presented_key()
+    if not presented:  # no key, nothing to compare — and no settings load outside a request
+        return False
+    return approver_ok(presented, get_settings().mcp_access_key)
 
 
 # --- conflict engine ------------------------------------------------------
@@ -174,7 +177,13 @@ async def find_conflicts(
 APPROVER_IDENTITY = "devon"  # registry human-operator identity (WS-1.2); reviewed_by value
 
 
-def proposed_defaults(*, proposed_by: str | None, applicability: dict, auto_approve: bool) -> dict:
+def proposed_defaults(
+    *, proposed_by: str | None, applicability: dict, auto_approve: bool | None = None
+) -> dict:
+    """Lifecycle fields for a new governed record. The approver's own writes land
+    approved unless it passes auto_approve=False: the approver proposing to itself
+    leaves a queue nobody reviews. Without the approver key a record is always
+    proposed, whatever auto_approve says."""
     data: dict = {
         "status": STATUS_PROPOSED,
         "authority": AUTHORITY_INFORMATIONAL,
@@ -182,11 +191,19 @@ def proposed_defaults(*, proposed_by: str | None, applicability: dict, auto_appr
         "applicability": applicability or {},
         "version": 1,
     }
-    if auto_approve and require_approver():
+    if auto_approve is not False and require_approver():
         data["status"] = STATUS_APPROVED
         data["reviewed_by"] = APPROVER_IDENTITY
         data["reviewed_at"] = datetime.now(UTC)
     return data
+
+
+def rule_auto_approve(auto_approve: bool | None, severity: str) -> bool | None:
+    """A BLOCK rule stops other agents' work, so it waits for an explicit
+    auto_approve=True; every other severity keeps proposed_defaults' default."""
+    if auto_approve is None and severity == "BLOCK":
+        return False
+    return auto_approve
 
 
 def finalize_governance(data: dict, flag: ConflictFlag | None) -> None:

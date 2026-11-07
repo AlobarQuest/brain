@@ -10,6 +10,7 @@ from src.core.governance import (
     find_conflicts,
     proposed_defaults,
     require_approver,
+    rule_auto_approve,
 )
 
 
@@ -56,14 +57,15 @@ def register_rule_tools(mcp: FastMCP) -> None:
         good_example: str | None = None,
         bad_example: str | None = None,
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
-        """Propose a normative rule for a road (status=proposed by default; approved only with
-        the approver key and auto_approve=True). severity must be BLOCK, WARN, or INFO. Provide
-        a machine-checkable `check` (forbidden_pattern/required_pattern/manifest_present/
-        judgment/...) where possible so a scanner can later consume it. A candidate flagged as a
-        duplicate of an approved required/recommended rule cannot auto-approve; an overlap is
-        advisory. A judgment-kind check is opaque and never flagged as a duplicate."""
+        """Propose a normative rule for a road (approved for an approver-key caller unless
+        auto_approve=False; proposed for any other caller). A BLOCK rule stays proposed unless
+        auto_approve=True. severity must be BLOCK, WARN, or INFO. Provide a machine-checkable
+        `check` (forbidden_pattern/required_pattern/manifest_present/judgment/...) where possible
+        so a scanner can later consume it. A candidate flagged as a duplicate of an approved
+        required/recommended rule cannot auto-approve; an overlap is advisory. A judgment-kind check
+        is opaque and never flagged as a duplicate."""
         if severity not in ("BLOCK", "WARN", "INFO"):
             return {"error": "invalid_severity", "allowed": ["BLOCK", "WARN", "INFO"]}
         applicability = {"road_slug": road_slug, "category": category}
@@ -80,7 +82,9 @@ def register_rule_tools(mcp: FastMCP) -> None:
         }
         data.update(
             proposed_defaults(
-                proposed_by=proposed_by, applicability=applicability, auto_approve=auto_approve
+                proposed_by=proposed_by,
+                applicability=applicability,
+                auto_approve=rule_auto_approve(auto_approve, severity),
             )
         )
         async with get_session_factory()() as session:

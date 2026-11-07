@@ -131,14 +131,14 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         source: str = "mcp",
         supersedes_id: str | None = None,
         proposed_by: str | None = None,
-        auto_approve: bool = False,
+        auto_approve: bool | None = None,
     ) -> dict:
-        """Store a new knowledge chunk for an app (status=proposed by default; approved only
-        with the approver key and auto_approve=True). Auto-generates embedding and extracts
+        """Store a new knowledge chunk for an app (approved for an approver-key caller unless
+        auto_approve=False; proposed for any other caller). Auto-generates embedding and extracts
         metadata. A candidate whose (app_slug, knowledge_type) overlaps an approved
-        recommended/required chunk is flagged (advisory; never blocks auto-approve).
-        Passing supersedes_id (superseding an existing chunk) is a de-escalation path and
-        requires the approver key — a plain capture with no supersedes_id is unaffected."""
+        recommended/required chunk is flagged (advisory; never blocks auto-approve). Passing
+        supersedes_id (superseding an existing chunk) is a de-escalation path and requires the
+        approver key — a plain capture with no supersedes_id is unaffected."""
         if knowledge_type not in KNOWLEDGE_TYPES:
             return {
                 "error": f"invalid_params: knowledge_type must be one of {', '.join(KNOWLEDGE_TYPES)}"
