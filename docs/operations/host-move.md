@@ -17,7 +17,7 @@ You need:
 - The approver key for Infra Brain. Fetch it from Bitwarden Secrets Manager (BWS) at call time. The BWS token is in the Keychain at service `Claude`, account `BWS_ACCESS_TOKEN_BRAIN_OPS`, and the secret UUIDs are in `.bws-secrets.toml`. Pass `--color no` to every `bws` call that you parse. Don't print the key or paste it into a prompt.
 - The new host's addresses: `ipv4`, and where they exist, `ipv6`, `tailnet_node`, `tailnet_ip`, and `hostnames`. Use addresses only. The registry doesn't accept DNS names in the address fields.
 
-  `ipv4`, `ipv6`, `tailnet_node`, and `tailnet_ip` are each one non-empty string. `hostnames` is a list of strings, even when there's only one, for example `["ubuntu-2gb-ash-1"]`. The guard matches `tailnet_node` and every hostname as a substring, so each one must be at least 4 characters long and contain a digit, `.`, `:`, or `-`. A plain name such as `ubuntu` is refused, because it would hold most records in every brain.
+  `ipv4` and `tailnet_ip` are each one IPv4 address, `ipv6` is one IPv6 address, and `tailnet_node` is one non-empty string. `hostnames` is a list of strings, even when there's only one, for example `["ubuntu-2gb-ash-1"]`. The guard matches every value as a whole address, ignoring case: a retired `100.92.138.1` doesn't match inside `100.92.138.19`, but it does match `100.92.138.1:22`. Even so, `tailnet_node` and each hostname must be at least 4 characters long and contain a digit, `.`, `:`, or `-`. A plain name such as `ubuntu` is refused, because it would hold most records in every brain.
 - The role name. Run `list_environments` on Infra Brain to see the roles.
 
 ## Move the role
@@ -26,9 +26,9 @@ You need:
 
 1. Call `set_environment` with the approver key. Pass the role, a description, the provider, the location, the new `addresses`, and `current_since` set to the move date in ISO format.
 
-   Leave `previous` out. When the current-side addresses (`ipv4`, `ipv6`, `tailnet_ip`) change and you omit `previous`, the registry rotates the old addresses into `previous` and stamps them with today's date.
+   Leave `previous` out. When a current-side address (`ipv4`, `ipv6`, `tailnet_ip`) that had a value changes or is removed and you omit `previous`, the registry rotates the old addresses into `previous` and stamps them with today's date. Adding a current-side address the role didn't have isn't a move and doesn't rotate.
 
-1. Check that the response contains `rotated: true`. If it doesn't, the current-side addresses didn't change. Compare your input with the record from step 1.
+1. Check that the response contains `rotated: true`. If it doesn't, no current-side address that had a value changed or was removed. Compare your input with the record from step 1.
 
 1. Open `/Users/devon/Projects/CLAUDE.md` and edit the role's line under "Infrastructure Quick Facts" so that it names the new host. Keep the dated history on that line, for example the "Moved from ... on YYYY-MM-DD" sentence.
 

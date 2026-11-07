@@ -45,7 +45,7 @@ def _bad_address(field: str, value: object, reason: str) -> dict:
 
 
 def _undistinctive(name: str) -> bool:
-    """A name matched as a substring must not be a short or plain word (`ubuntu`)."""
+    """A name the guard matches in free text must not be a short or plain word (`ubuntu`)."""
     return len(name) < _MIN_NAME_LEN or not _NAME_MARKS & set(name)
 
 
