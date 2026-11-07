@@ -37,6 +37,7 @@ AUTHORITY_RANK = _AUTHORITY_RANK  # public alias — consumed by brains' reposit
 
 CONFLICT_DUPLICATE = "duplicate"
 CONFLICT_OVERLAP = "overlap"
+CONFLICT_RETIRED_ADDRESS = "retired_address"
 
 _JSON = sa.JSON().with_variant(JSONB, "postgresql")
 

@@ -1,0 +1,141 @@
+"""Retired-address guard: find a retired host's address in text bound for a brain write.
+
+Pure matching, no I/O and no brain imports. A caller fetches the environment payload
+(`payload_from_environments` builds it from `Environment` rows), turns it into an
+`AddressBook`, scans the texts it is about to store, and either holds the new record
+as proposed (`hold_for_retired`), refuses (`refusal`), or merges `guard_fields` into
+its response.
+
+Matching is by fixed substring. Provider words ("Hetzner") are never match strings.
+A string that is current for any role is never treated as retired.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
+
+from src.core.governance import CONFLICT_DUPLICATE, CONFLICT_RETIRED_ADDRESS, STATUS_PROPOSED
+
+_CURRENT_KEYS = ("ipv4", "ipv6", "tailnet_ip")
+_RETIRED_KEYS = (*_CURRENT_KEYS, "tailnet_node")
+_NOTE_SEPARATOR = " | "
+
+
+@dataclass(frozen=True)
+class AddressBook:
+    """Match string -> role, for current and retired addresses."""
+
+    current: dict[str, str]
+    retired: dict[str, str]
+
+
+@dataclass(frozen=True)
+class AddressHits:
+    """`(match, role)` pairs found in scanned text."""
+
+    retired: tuple[tuple[str, str], ...]
+    current: tuple[tuple[str, str], ...]
+
+    @property
+    def any_retired(self) -> bool:
+        return bool(self.retired)
+
+
+def _values(addresses: dict[str, Any], keys: tuple[str, ...], with_hostnames: bool) -> list[str]:
+    found = [addresses[k] for k in keys if addresses.get(k)]
+    if with_hostnames:
+        found.extend(h for h in addresses.get("hostnames") or [] if h)
+    return found
+
+
+def payload_from_environments(rows: Iterable[Any]) -> dict:
+    """The route payload for `Environment`-shaped rows (`.role`, `.addresses`, `.previous`)."""
+    roles = []
+    for row in rows:
+        retired: list[str] = []
+        for prior in row.previous or []:
+            retired.extend(_values(prior.get("addresses") or {}, _RETIRED_KEYS, True))
+        roles.append(
+            {
+                "role": row.role,
+                "current": _values(row.addresses or {}, _CURRENT_KEYS, False),
+                "retired": retired,
+            }
+        )
+    return {"roles": roles}
+
+
+def book_from_payload(payload: dict) -> AddressBook:
+    """Build the lookup book. A string current for any role is dropped from the retired side."""
+    current: dict[str, str] = {}
+    retired: dict[str, str] = {}
+    for entry in payload.get("roles", []):
+        role = entry["role"]
+        for match in entry.get("current", []):
+            if match:
+                current[match] = role
+        for match in entry.get("retired", []):
+            if match:
+                retired.setdefault(match, role)
+    for match in current:
+        retired.pop(match, None)
+    return AddressBook(current=current, retired=retired)
+
+
+def _found(texts: list[str], table: dict[str, str]) -> tuple[tuple[str, str], ...]:
+    return tuple((m, role) for m, role in table.items() if any(m in t for t in texts))
+
+
+def scan(texts: Iterable[str | None], book: AddressBook | None) -> AddressHits:
+    if book is None:
+        return AddressHits((), ())
+    kept = [t for t in texts if t]
+    return AddressHits(retired=_found(kept, book.retired), current=_found(kept, book.current))
+
+
+def retired_note(hits: AddressHits) -> str:
+    return "; ".join(f"names {m}, a retired address of {role}" for m, role in hits.retired)
+
+
+def hold_for_retired(data: dict, hits: AddressHits) -> None:
+    """Hold a new record's insert dict as proposed. Run after `finalize_governance`."""
+    if not hits.any_retired:
+        return
+    data["status"] = STATUS_PROPOSED
+    data.pop("reviewed_by", None)
+    data.pop("reviewed_at", None)
+    if data.get("conflict_kind") != CONFLICT_DUPLICATE:
+        data["conflict_kind"] = CONFLICT_RETIRED_ADDRESS
+    existing = data.get("conflict_note")
+    data["conflict_note"] = (
+        f"{existing}{_NOTE_SEPARATOR}{retired_note(hits)}" if existing else retired_note(hits)
+    )
+
+
+def _matches(pairs: tuple[tuple[str, str], ...]) -> list[dict]:
+    return [{"match": m, "role": role} for m, role in pairs]
+
+
+def guard_fields(hits: AddressHits) -> dict:
+    """Fields to merge into a tool response; empty when nothing matched."""
+    fields: dict[str, Any] = {}
+    if hits.any_retired:
+        fields["retired_address"] = _matches(hits.retired)
+        fields["note"] = f"{retired_note(hits)}; the record is held as proposed"
+    if hits.current:
+        match, role = hits.current[0]
+        fields["hint"] = (
+            f"{match} is the current address of {role}; "
+            f"say '{role}' so the record survives a host move"
+        )
+    return fields
+
+
+def refusal(hits: AddressHits) -> dict:
+    return {
+        "error": "retired_address",
+        "matches": _matches(hits.retired),
+        "hint": "pass allow_retired=True for dated history",
+    }
