@@ -146,3 +146,45 @@ def test_payload_from_environments_shape():
     assert "web.example.com" not in row["current"] and "ovh-vps1" not in row["current"]
     assert set(row["retired"]) == {"178.156.247.239", "old-node", "old.example.com"}
     assert "Hetzner" not in row["retired"]
+
+
+def _env(role, addresses, previous):
+    return SimpleNamespace(role=role, addresses=addresses, previous=previous)
+
+
+def test_payload_drops_retired_values_still_live_on_any_row():
+    live = {"ipv4": "40.160.102.182", "tailnet_node": "ovh-vps1", "hostnames": ["web-1.example"]}
+    prior = {
+        "ipv4": "178.156.247.239",
+        "tailnet_node": "ovh-vps1",
+        "hostnames": ["web-1.example", "dev-box.example"],
+    }
+    rows = [
+        _env("prod-vps", live, [{"addresses": prior, "provider": "x", "until": "2026-10-23"}]),
+        _env("dev", {"tailnet_ip": "100.64.0.9", "hostnames": ["dev-box.example"]}, []),
+    ]
+    prod, dev = payload_from_environments(rows)["roles"]
+    assert prod["retired"] == ["178.156.247.239"]
+    assert prod["current"] == ["40.160.102.182"]
+    assert dev["current"] == ["100.64.0.9"]
+
+
+def test_payload_retires_prior_ipv6_and_tailnet_ip():
+    prior = {"ipv6": "2001:db8::1", "tailnet_ip": "100.112.188.96"}
+    row = _env(
+        "prod-vps",
+        {"ipv6": "2001:db8::2", "tailnet_ip": "100.92.138.19"},
+        [{"addresses": prior, "provider": "x", "until": "2026-10-23"}],
+    )
+    (out,) = payload_from_environments([row])["roles"]
+    assert out["current"] == ["2001:db8::2", "100.92.138.19"]
+    assert sorted(out["retired"]) == ["100.112.188.96", "2001:db8::1"]
+
+
+def test_payload_previous_without_addresses_and_none_previous():
+    rows = [
+        _env("a", {"ipv4": "10.0.0.1"}, [{"provider": "x", "until": "2026-01-01"}]),
+        _env("b", {"ipv4": "10.0.0.2"}, None),
+    ]
+    a, b = payload_from_environments(rows)["roles"]
+    assert a["retired"] == [] and b["retired"] == []

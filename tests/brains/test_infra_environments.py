@@ -9,6 +9,8 @@ from sqlalchemy.pool import StaticPool
 
 import src.brains.infra.tools.environments as env_tools_module
 from src.brains.infra.models import Environment
+from src.brains.infra.repositories.environments import EnvironmentRepository
+from src.core.address_guard import payload_from_environments
 from src.core.config import BrainType
 from src.core.registry import load_brain
 
@@ -40,6 +42,13 @@ async def _call(mcp: FastMCP, tool: str, **args) -> dict:
     result = await mcp.call_tool(tool, args)
     assert result.structured_content is not None
     return result.structured_content
+
+
+async def _retired() -> list[str]:
+    async with env_tools_module.get_session_factory()() as session:
+        rows = await EnvironmentRepository(session).list_all()
+    (role,) = payload_from_environments(rows)["roles"]
+    return sorted(role["retired"])
 
 
 def _set_args(**overrides) -> dict:
@@ -83,6 +92,25 @@ async def test_set_environment_rotates_on_address_change(mcp):
     ]
     assert body["addresses"]["ipv4"] == "203.0.113.9"
     assert body["provider"] == "other"
+    # Only the address that changed is retired; the unchanged node, tailnet IP and hostname
+    # are still live.
+    assert await _retired() == ["40.160.102.182"]
+
+
+async def test_rotation_through_tailnet_ip_only_change(mcp):
+    await _call(mcp, "set_environment", **_set_args())
+    moved = dict(ADDRS, tailnet_ip="100.64.0.7")
+    body = await _call(mcp, "set_environment", **_set_args(addresses=moved))
+    assert body["rotated"] is True
+    assert await _retired() == ["100.92.138.19"]
+
+
+async def test_rotation_through_ipv6_only_change(mcp):
+    await _call(mcp, "set_environment", **_set_args(addresses=dict(ADDRS, ipv6="2001:db8::1")))
+    moved = dict(ADDRS, ipv6="2001:db8::2")
+    body = await _call(mcp, "set_environment", **_set_args(addresses=moved))
+    assert body["rotated"] is True
+    assert await _retired() == ["2001:db8::1"]
 
 
 async def test_set_environment_same_addresses_no_rotation(mcp):

@@ -65,12 +65,18 @@ def _values(addresses: dict[str, Any], keys: tuple[str, ...], with_hostnames: bo
 
 
 def payload_from_environments(rows: Iterable[Any]) -> dict:
-    """The route payload for `Environment`-shaped rows (`.role`, `.addresses`, `.previous`)."""
+    """The route payload for `Environment`-shaped rows (`.role`, `.addresses`, `.previous`).
+
+    A previous value still present in any row's current addresses (an unchanged tailnet node or
+    hostname carried into `previous` by rotation) is live, so it is left out of `retired`."""
+    rows = list(rows)
+    live = {v for row in rows for v in _values(row.addresses or {}, _RETIRED_KEYS, True)}
     roles = []
     for row in rows:
         retired: list[str] = []
         for prior in row.previous or []:
-            retired.extend(_values(prior.get("addresses") or {}, _RETIRED_KEYS, True))
+            found = _values(prior.get("addresses") or {}, _RETIRED_KEYS, True)
+            retired.extend(v for v in found if v not in live)
         roles.append(
             {
                 "role": row.role,
