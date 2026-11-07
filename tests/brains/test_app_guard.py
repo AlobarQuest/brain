@@ -225,3 +225,33 @@ async def test_onboard_app_retired_hint_only(monkeypatch):
     for task in list(knowledge_tools_module._background_tasks):
         await task
     assert len(scheduled) == 1
+
+
+async def test_update_app_retired_in_deployment_url_refused(monkeypatch):
+    _wire(monkeypatch)
+    out = await _call("update_app", {"slug": "x", "deployment_url": f"http://{RETIRED}:8000"})
+    assert out["error"] == "retired_address"
+    assert out["matches"] == [{"match": RETIRED, "role": "prod-vps"}]
+    assert _Repo.written == {}
+
+
+@pytest.mark.parametrize("url", [5, ["http://x"], {"href": "http://x"}])
+async def test_update_app_non_string_env_url_is_invalid(monkeypatch, url):
+    _wire(monkeypatch)
+    out = await _call("update_app", {"slug": "x", "environments": [{"name": "p", "url": url}]})
+    assert out["error"].startswith("invalid_params: ")
+    assert "url" in out["error"]
+    assert _Repo.written == {}
+
+
+async def test_update_app_null_env_url_applies(monkeypatch):
+    _wire(monkeypatch)
+    out = await _call("update_app", {"slug": "x", "environments": [{"name": "p", "url": None}]})
+    assert out["updated"] == ["environments"]
+
+
+@pytest.mark.parametrize("entry", ["prod", 1, None, ["url"]])
+def test_invalid_environments_rejects_non_dict_entry(entry):
+    # The MCP schema already rejects these; the check must not raise if one gets through.
+    error = apps_tools_module._invalid_environments([entry])
+    assert error is not None and error.startswith("invalid_params: ")

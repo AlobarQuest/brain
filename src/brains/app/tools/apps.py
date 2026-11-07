@@ -52,6 +52,16 @@ def serialize_app_profile(app, coverage: dict, landing: dict | None = None) -> d
     }
 
 
+def _invalid_environments(environments: list | None) -> str | None:
+    """An `invalid_params` error unless each entry is an object whose `url` is a string or null."""
+    for index, env in enumerate(environments or []):
+        if not isinstance(env, dict):
+            return f"invalid_params: environments[{index}] must be an object"
+        if not isinstance(env.get("url"), str | None):
+            return f"invalid_params: environments[{index}].url must be a string or null"
+    return None
+
+
 def register_app_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
@@ -108,8 +118,8 @@ def register_app_tools(mcp: FastMCP) -> None:
         APPROVER KEY ONLY: the app record is approved state with no proposal path,
         so a contributor key could otherwise rewrite it without review.
 
-        A retired host address in description or an environment url is refused unless
-        allow_retired=True (for dated history).
+        A retired host address in description, deployment_url or an environment url is refused
+        unless allow_retired=True (for dated history).
         """
         if not require_approver():
             return {"error": "not_authorized", "hint": "updating an app requires the approver key"}
@@ -136,10 +146,12 @@ def register_app_tools(mcp: FastMCP) -> None:
             # counted, turning a repository that redeploys into one reading 'inert'.
             if canonical_repo_slug(fields["github_repo"]) is None:
                 return {"error": "invalid_params: github_repo must be 'owner/repo'"}
+        if (bad := _invalid_environments(environments)) is not None:
+            return {"error": bad}
 
         # Fetched before the session opens so the HTTP call is not held inside a transaction.
         hits = scan(
-            [description, *(env.get("url") for env in environments or [])],
+            [description, deployment_url, *(env.get("url") for env in environments or [])],
             await fetch_address_book(),
         )
         if hits.any_retired and not allow_retired:
