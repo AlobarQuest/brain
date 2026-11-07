@@ -97,7 +97,10 @@ async def test_capture_retired_supersede_held_leaves_old_chunk_live(
     body = await _capture(f"Now on {RETIRED}.", supersedes_id=str(old_id))
 
     assert body["status"] == "proposed"
-    assert "deprecates the old chunk on approval" in body["note"]
+    assert f"the old chunk {old_id} stays approved" in body["note"]
+    assert "approving this record does not supersede it" in body["note"]
+    assert "deprecate the old chunk by hand after approving" in body["note"]
+    assert "on approval" not in body["note"]
     async with app_db() as session:
         old = await session.get(AppKnowledge, old_id)
         assert old.status == "approved"

@@ -225,8 +225,9 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
         }
         if supersedes_id and hits.any_retired:
             held_supersede = (
-                f"the old chunk {supersedes_id} stays approved: the reviewer "
-                "deprecates the old chunk on approval"
+                f"the old chunk {supersedes_id} stays approved: approving this record does "
+                "not supersede it, so the reviewer must deprecate the old chunk by hand "
+                "after approving"
             )
             response["note"] = "; ".join(filter(None, [response.get("note"), held_supersede]))
         return response
