@@ -23,6 +23,7 @@ _BRAIN_ENV_VARS = [
     "DATABASE_URL",
     "LOG_LEVEL",
     "APP_ENV",
+    "INFRA_BRAIN_URL",
 ]
 
 
@@ -49,3 +50,13 @@ def clear_brain_env(monkeypatch):
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_session_factory.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_address_guard_cache():
+    """The address guard's module-level cache must not bleed between tests."""
+    from src.core.address_guard import reset_address_cache
+
+    reset_address_cache()
+    yield
+    reset_address_cache()

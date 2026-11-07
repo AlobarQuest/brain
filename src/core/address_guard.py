@@ -1,6 +1,7 @@
 """Retired-address guard: find a retired host's address in text bound for a brain write.
 
-Pure matching, no I/O and no brain imports. A caller fetches the environment payload
+Matching is pure. `fetch_address_book` is the only I/O, for the brains that do not own the
+registry. A caller fetches the environment payload
 (`payload_from_environments` builds it from `Environment` rows), turns it into an
 `AddressBook`, scans the texts it is about to store, and either holds the new record
 as proposed (`hold_for_retired`), refuses (`refusal`), or merges `guard_fields` into
@@ -12,11 +13,24 @@ A string that is current for any role is never treated as retired.
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
+from src.core.config import get_settings
 from src.core.governance import CONFLICT_DUPLICATE, CONFLICT_RETIRED_ADDRESS, STATUS_PROPOSED
+
+logger = logging.getLogger(__name__)
+
+CACHE_TTL_S = 300
+FAILURE_TTL_S = 30
+_FETCH_TIMEOUT_S = 5.0
+_clock = time.monotonic  # replaced in tests
+_cache: tuple[float, AddressBook | None] | None = None  # (expires_at, book)
 
 _CURRENT_KEYS = ("ipv4", "ipv6", "tailnet_ip")
 _RETIRED_KEYS = (*_CURRENT_KEYS, "tailnet_node")
@@ -139,3 +153,36 @@ def refusal(hits: AddressHits) -> dict:
         "matches": _matches(hits.retired),
         "hint": "pass allow_retired=True for dated history",
     }
+
+
+def reset_address_cache() -> None:
+    global _cache
+    _cache = None
+
+
+async def _fetch_book() -> AddressBook:
+    settings = get_settings()
+    url = f"{settings.infra_brain_url.rstrip('/')}/api/environments/addresses"
+    headers = {"User-Agent": f"brain-address-guard/1 ({settings.brain_type}-brain)"}
+    async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT_S) as client:
+        response = await client.get(url, headers=headers)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("roles"), list):
+        raise ValueError("payload has no 'roles' list")
+    return book_from_payload(payload)
+
+
+async def fetch_address_book() -> AddressBook | None:
+    """Infra Brain's address book, cached; None when unavailable (the write goes unguarded)."""
+    global _cache
+    if _cache is not None and _clock() < _cache[0]:
+        return _cache[1]
+    try:
+        book: AddressBook | None = await _fetch_book()
+        ttl = CACHE_TTL_S
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("address guard skipped: %s", exc)
+        book, ttl = None, FAILURE_TTL_S
+    _cache = (_clock() + ttl, book)
+    return book
