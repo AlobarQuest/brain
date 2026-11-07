@@ -235,3 +235,32 @@ async def test_set_environment_accepts_distinctive_match_strings(mcp):
     addresses = {"tailnet_node": "ovh-vps1", "hostnames": ["ubuntu-2gb-ash-1"]}
     body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
     assert body["addresses"] == addresses
+
+
+@pytest.mark.parametrize(
+    ("addresses", "field"),
+    [
+        ({"ipv4": "vps1.example.com"}, "ipv4"),
+        ({"ipv4": "300.1.1.1"}, "ipv4"),
+        ({"ipv4": "2001:db8::1"}, "ipv4"),
+        ({"tailnet_ip": "ovh-vps1"}, "tailnet_ip"),
+        ({"tailnet_ip": "fd7a:115c::1"}, "tailnet_ip"),
+        ({"ipv6": "40.160.102.182"}, "ipv6"),
+        ({"ipv6": "2001:db8::zz"}, "ipv6"),
+    ],
+)
+async def test_set_environment_rejects_invalid_ip_values(mcp, addresses, field):
+    (value,) = addresses.values()
+    body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
+    assert body["error"] == "invalid_addresses"
+    assert body["field"] == field and body["value"] == value
+    prev = [{"addresses": addresses, "provider": "p", "until": "2026-01-01"}]
+    body = await _call(mcp, "set_environment", **_set_args(previous=prev))
+    assert body["error"] == "invalid_addresses"
+    assert body["field"] == field and body["value"] == value
+
+
+async def test_set_environment_accepts_valid_ips(mcp):
+    addresses = {"ipv4": "40.160.102.182", "ipv6": "2001:db8::a", "tailnet_ip": "100.92.138.19"}
+    body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
+    assert body["addresses"] == addresses

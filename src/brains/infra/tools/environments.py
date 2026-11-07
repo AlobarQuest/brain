@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 from datetime import date
 
@@ -28,6 +29,7 @@ def environment_dict(env: Environment) -> dict:
 
 
 _STRING_KEYS = ("ipv4", "ipv6", "tailnet_node", "tailnet_ip")
+_IP_VERSIONS = {"ipv4": 4, "ipv6": 6, "tailnet_ip": 4}
 _MIN_NAME_LEN = 4
 _NAME_MARKS = frozenset("0123456789.:-")
 
@@ -47,12 +49,22 @@ def _undistinctive(name: str) -> bool:
     return len(name) < _MIN_NAME_LEN or not _NAME_MARKS & set(name)
 
 
+def _is_ip(value: str, version: int) -> bool:
+    try:
+        return ipaddress.ip_address(value).version == version
+    except ValueError:
+        return False
+
+
 def _invalid_addresses(addresses: object) -> dict | None:
     if not isinstance(addresses, dict) or set(addresses) - set(ADDRESS_KEYS):
         return {"error": "invalid_addresses", "allowed": list(ADDRESS_KEYS)}
     for key in _STRING_KEYS:
         if key in addresses and not (isinstance(addresses[key], str) and addresses[key]):
             return _bad_address(key, addresses[key], "must be a non-empty string")
+    for key, version in _IP_VERSIONS.items():
+        if key in addresses and not _is_ip(addresses[key], version):
+            return _bad_address(key, addresses[key], f"must be a valid IPv{version} address")
     hostnames = addresses.get("hostnames", [])
     if not isinstance(hostnames, list) or not all(isinstance(h, str) and h for h in hostnames):
         return _bad_address("hostnames", hostnames, "must be a list of non-empty strings")
@@ -129,8 +141,8 @@ def register_environment_tools(mcp: FastMCP) -> None:
         updated_by: str = "devon",
     ) -> dict:
         """Create or update an environment role. APPROVER KEY ONLY. addresses may hold only
-        ipv4, ipv6, tailnet_node, tailnet_ip (non-empty strings) and hostnames (a list of
-        strings); all optional. tailnet_node and each hostname must be at least 4 characters and
+        ipv4 and tailnet_ip (IPv4 addresses), ipv6 (an IPv6 address), tailnet_node (a string) and
+        hostnames (a list of strings); all optional. tailnet_node and each hostname must be at least 4 characters and
         contain a digit, '.', ':' or '-'. current_since is an ISO date. When previous is omitted
         and ipv4/ipv6/tailnet_ip changed, the old host is appended to previous (until = today);
         pass previous to replace the list explicitly. Each previous entry is
