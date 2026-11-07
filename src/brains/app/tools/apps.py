@@ -6,6 +6,7 @@ from src.brains.app.models import LANDING_UNKNOWN, LANDING_VALUES
 from src.brains.app.repositories.apps import AppRepository, canonical_repo_slug
 from src.brains.app.repositories.knowledge import KnowledgeRepository
 from src.brains.app.services.classifier import KNOWLEDGE_TYPES
+from src.core.address_guard import fetch_address_book, guard_fields, refusal, scan
 from src.core.db import get_session_factory
 from src.core.governance import require_approver
 
@@ -97,6 +98,7 @@ def register_app_tools(mcp: FastMCP) -> None:
         repo_path: str | None = None,
         github_repo: str | None = None,
         environments: list[dict] | None = None,
+        allow_retired: bool = False,
     ) -> dict:
         """Update structured fields on an app (name, description, tech_stack, status, tags, repo_path, deployment_url, github_repo, environments).
 
@@ -105,6 +107,9 @@ def register_app_tools(mcp: FastMCP) -> None:
 
         APPROVER KEY ONLY: the app record is approved state with no proposal path,
         so a contributor key could otherwise rewrite it without review.
+
+        A retired host address in description or an environment url is refused unless
+        allow_retired=True (for dated history).
         """
         if not require_approver():
             return {"error": "not_authorized", "hint": "updating an app requires the approver key"}
@@ -132,6 +137,14 @@ def register_app_tools(mcp: FastMCP) -> None:
             if canonical_repo_slug(fields["github_repo"]) is None:
                 return {"error": "invalid_params: github_repo must be 'owner/repo'"}
 
+        # Fetched before the session opens so the HTTP call is not held inside a transaction.
+        hits = scan(
+            [description, *(env.get("url") for env in environments or [])],
+            await fetch_address_book(),
+        )
+        if hits.any_retired and not allow_retired:
+            return refusal(hits)
+
         async with get_session_factory()() as session:
             repo = AppRepository(session)
             app = await repo.update_app(slug, **fields)
@@ -150,6 +163,7 @@ def register_app_tools(mcp: FastMCP) -> None:
             "name": app.name,
             "status": app.status,
             "updated": list(fields.keys()),
+            **{k: v for k, v in guard_fields(hits).items() if k == "hint"},
         }
 
     @mcp.tool()
