@@ -1162,3 +1162,25 @@ async def test_add_rule_approver_default_holds_only_block_rules(
         },
     )
     assert _data(added)["status"] == expected
+
+
+@pytest.mark.parametrize(
+    ("approver", "requested", "expected"),
+    [
+        (True, None, "approved"),  # the approver's own write needs no review
+        (True, False, "proposed"),  # ...unless it asks for one
+        (False, None, "proposed"),  # a contributor always proposes
+        (False, True, "proposed"),
+    ],
+)
+async def test_add_exemplar_approval_follows_key_and_request(
+    code_db, monkeypatch, approver, requested, expected
+):
+    monkeypatch.setattr(governance_module, "require_approver", lambda: approver)
+    slug = f"road-x-{approver}-{requested}".lower()
+    await _seed_road(code_db, slug=slug)
+    args = {"road_slug": slug, "label": "E", "location": "path/to/file"}
+    if requested is not None:
+        args["auto_approve"] = requested
+    result = await _code_mcp().call_tool("add_exemplar", args)
+    assert _data(result)["status"] == expected
