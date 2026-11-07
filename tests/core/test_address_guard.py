@@ -215,3 +215,22 @@ def test_hint_only_keeps_just_the_hint():
     hits = scan(["178.156.247.239 and 40.160.102.182"], book())
     assert address_guard.hint_only(hits) == {"hint": guard_fields(hits, held=False)["hint"]}
     assert address_guard.hint_only(scan(["178.156.247.239"], book())) == {}
+
+
+def test_current_wins_ignores_case_in_payload():
+    row = _env(
+        "prod-vps",
+        {"ipv6": "2001:DB8::A"},
+        [{"addresses": {"ipv6": "2001:db8::a"}, "provider": "x", "until": "2026-10-23"}],
+    )
+    (out,) = payload_from_environments([row])["roles"]
+    assert out["retired"] == []
+
+
+def test_current_wins_ignores_case_in_book():
+    payload = {
+        "roles": [{"role": "prod-vps", "current": ["2001:DB8::A"], "retired": ["2001:db8::a"]}]
+    }
+    mixed = book_from_payload(payload)
+    assert mixed.retired == {}
+    assert not scan(["on 2001:db8::a"], mixed).any_retired

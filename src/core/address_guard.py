@@ -71,13 +71,13 @@ def payload_from_environments(rows: Iterable[Any]) -> dict:
     A previous value still present in any row's current addresses (an unchanged tailnet node or
     hostname carried into `previous` by rotation) is live, so it is left out of `retired`."""
     rows = list(rows)
-    live = {v for row in rows for v in _values(row.addresses or {}, _RETIRED_KEYS, True)}
+    live = {v.lower() for row in rows for v in _values(row.addresses or {}, _RETIRED_KEYS, True)}
     roles = []
     for row in rows:
         retired: list[str] = []
         for prior in row.previous or []:
             found = _values(prior.get("addresses") or {}, _RETIRED_KEYS, True)
-            retired.extend(v for v in found if v not in live)
+            retired.extend(v for v in found if v.lower() not in live)
         roles.append(
             {
                 "role": row.role,
@@ -89,7 +89,8 @@ def payload_from_environments(rows: Iterable[Any]) -> dict:
 
 
 def book_from_payload(payload: dict) -> AddressBook:
-    """Build the lookup book. A string current for any role is dropped from the retired side."""
+    """Build the lookup book. A string current for any role, in any case, is dropped from the
+    retired side."""
     current: dict[str, str] = {}
     retired: dict[str, str] = {}
     for entry in payload.get("roles", []):
@@ -100,8 +101,8 @@ def book_from_payload(payload: dict) -> AddressBook:
         for match in entry.get("retired", []):
             if match:
                 retired.setdefault(match, role)
-    for match in current:
-        retired.pop(match, None)
+    live = {match.lower() for match in current}
+    retired = {m: role for m, role in retired.items() if m.lower() not in live}
     return AddressBook(current=current, retired=retired)
 
 
