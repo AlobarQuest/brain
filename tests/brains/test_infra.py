@@ -917,3 +917,46 @@ async def test_add_rule_approver_default_holds_only_block_rules(
         },
     )
     assert _data(added)["status"] == expected
+
+
+class _FakeCommitSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def commit(self):
+        return None
+
+
+class _RecordingLessonRepo:
+    def __init__(self, session):
+        pass
+
+    async def add(self, data):
+        return type("Rec", (), {"id": 1, "title": data["title"], "status": data["status"]})()
+
+
+@pytest.mark.parametrize(
+    ("severity", "requested", "expected"),
+    [
+        ("CRITICAL", None, "proposed"),  # held for an explicit yes, like a BLOCK rule
+        ("CRITICAL", True, "approved"),
+        ("WARN", None, "approved"),
+    ],
+)
+async def test_add_lesson_approver_default_holds_only_critical(
+    monkeypatch, severity, requested, expected
+):
+    """Fake repositories: Lesson.tags is a Postgres ARRAY that can't bind on SQLite."""
+    monkeypatch.setattr(governance_module, "require_approver", lambda: True)
+    monkeypatch.setattr(
+        lessons_tools_module, "get_session_factory", lambda: lambda: _FakeCommitSession()
+    )
+    monkeypatch.setattr(lessons_tools_module, "LessonRepository", _RecordingLessonRepo)
+    args = {"title": "L", "content": "c", "severity": severity}
+    if requested is not None:
+        args["auto_approve"] = requested
+    result = await _infra_mcp().call_tool("add_lesson", args)
+    assert _data(result)["status"] == expected

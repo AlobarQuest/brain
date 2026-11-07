@@ -10,7 +10,7 @@ from src.core.governance import (
     find_conflicts,
     proposed_defaults,
     require_approver,
-    rule_auto_approve,
+    severity_auto_approve,
 )
 
 
@@ -84,7 +84,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
             proposed_defaults(
                 proposed_by=proposed_by,
                 applicability=applicability,
-                auto_approve=rule_auto_approve(auto_approve, severity),
+                auto_approve=severity_auto_approve(auto_approve, severity),
             )
         )
         async with get_session_factory()() as session:
