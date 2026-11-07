@@ -17,11 +17,10 @@ things that need a literal address.
 
 - Every brain record and doc can say "the prod VPS" or "dev Coolify" and be correct after a host
   move without being edited.
-- One authoritative answer to "what is the prod VPS right now": its provider, addresses, tailnet
-  name, and DNS alias. Agents can query it.
+- One authoritative answer to "what is the prod VPS right now": its provider, server, and
+  addresses. Agents can query it.
 - A brain write that names a retired host's address gets caught before it becomes approved guidance.
-- Machines (configs, SSH targets, LaunchAgents, DNS) reach the prod host through a name that a move
-  repoints, not a literal IP address.
+- Machines reach a role's host through a name that a move repoints, not a literal IP address.
 
 ## Non-goals
 
@@ -32,6 +31,9 @@ things that need a literal address.
 - Automating a host move.
 - Changing `project-standards/retired-hosts.toml` or `portfolio lint`. They keep guarding tracked
   files.
+- Storing DNS names in the brains. DNS (Cloudflare and Namecheap) is the source of truth for which
+  name points where, and infraops reads it live. A copy in a brain would drift. When an agent needs
+  to know which sites or names point at a role's host, it asks DNS or Coolify at that moment.
 
 ## Anti-goals
 
@@ -40,7 +42,7 @@ The design fails if any of the following happen, even if it technically works:
 - A guard that blocks legitimate history, so sessions learn to work around it or stop writing.
 - A second, drifting source of truth: the environment registry and CLAUDE.md's "Infrastructure Quick
   Facts" disagreeing about the prod host.
-- DNS work that takes production sites down. Phase 3 is live-DNS work and runs in its own
+- DNS work that takes production sites down. Phase 3 touches live DNS and runs in its own
   infrastructure session.
 
 ## Roles
@@ -50,9 +52,9 @@ another host that records refer to.
 
 | Role | Means today |
 |---|---|
-| `prod-vps` | OVHcloud US VPS-3, Vint Hill VA. Public 40.160.102.182, IPv6 2604:2dc0:101:200::5d55, tailnet `ovh-vps1` 100.92.138.19. Runs prod Coolify. |
-| `prod-coolify` | Coolify at `http://coolify-1.devonwatkins.com`, on `prod-vps`. |
-| `dev-coolify` | Coolify on the OrbStack `ubuntu` machine on the Mac mini (`ssh orb`). |
+| `prod-vps` | OVHcloud US VPS-3, Vint Hill VA. Public 40.160.102.182, IPv6 2604:2dc0:101:200::5d55, tailnet node `ovh-vps1` at 100.92.138.19. Runs prod Coolify. |
+| `prod-coolify` | The production Coolify instance, on `prod-vps`. |
+| `dev-coolify` | Coolify on the OrbStack `ubuntu` machine on the Mac mini. |
 | `operator-mac` | Devon's Mac mini: LaunchAgents, local tools, the OrbStack host Docker engine. |
 
 ## Design
@@ -64,7 +66,8 @@ Add a record type, `environment`, to Infra Brain, with these fields:
 - `role`: the stable name, such as `prod-vps`. One current row per role.
 - `description`: what the role is for.
 - `provider` and `location`.
-- `addresses`: public IPv4 and IPv6, tailnet name and IP, and DNS alias.
+- `addresses`: public IPv4 and IPv6, and the tailnet node name and IP address. No DNS names; see
+  the non-goals.
 - `current_since`: the date this host took the role.
 - `previous`: a list of `{addresses, provider, until}` for hosts that held the role before. Hetzner
   178.156.247.239 and tailnet 100.112.188.96 go here for `prod-vps`, until 2026-10-23.
@@ -84,7 +87,7 @@ CLAUDE.md's "Infrastructure Quick Facts" keeps a one-line summary per role, plus
 A host move updates three places: the registry (`set_environment`), the Quick Facts lines, and
 `project-standards/retired-hosts.toml`. The workspace CLAUDE.md isn't in a git repository, so the
 three can't share one commit. This plan adds a host-move runbook, `docs/operations/host-move.md`,
-that lists the three places plus phase 3's literal-address list. An automated check across the
+that lists the three places. The phase 3 session adds the references that must stay literal. An automated check across the
 three is a later item, not part of this plan. (My call.)
 
 ### Phase 2: write-time guard in every brain
@@ -128,27 +131,13 @@ in DNS, and tailnet addresses can be reached only from inside the tailnet.)
 
 ### Phase 3: machine-level names (separate infrastructure session)
 
-This phase is live DNS and host configuration. It gets its own plan, written in that session after
-surveying live state, and it isn't part of the plan for phases 1, 2, and 4. It follows infra-brain
-standards and goes through infraops. (My call.)
+The principle: where a machine needs to reach a role's host, it uses a name that a host move
+repoints, not a literal IP address.
 
-1. Create `prod-vps.devonwatkins.com`, an A record and an AAAA record for `prod-vps`. DNS-only,
-   not proxied.
-2. Repoint machine references from the literal IP address to the alias, where a name works: SSH
-   config and LaunchAgents on `operator-mac` (for example, `com.devon.n8n-oauth-sstunnel`), and
-   infraops `VPS_HOST`.
-3. Convert app subdomains to CNAMEs of `prod-vps.devonwatkins.com`, where the provider allows it.
-   Namecheap allows a CNAME on a subdomain but not on the root of a domain. Cloudflare zones can
-   flatten a CNAME at the root. Convert in small batches, and check each site after its change.
-4. Rename the tailnet node from `ovh-vps1` to `prod-vps`. Then update tailnet-only callers to use
-   the MagicDNS name, such as the VeriTok poller, which uses `100.92.138.19:8010` today. Do this
-   only after checking that nothing depends on the old name.
-5. Write down the references that must stay literal. That runbook list is what a host move still
-   has to change by hand. It includes the Namecheap API allowlist, firewall rules, the alias record
-   itself, and root-of-domain A records on Namecheap.
-
-Retiring the Hetzner host fits naturally in the same session. That means removing the server, the
-`com.devon.hetzner-snapshot` job, the old allowlist entry, and the offline tailnet node.
+Everything else belongs to that session: which names exist, on which domain (the prod alias belongs
+on `alobar.net`), which references move to them, and which must stay literal. It gets its own plan,
+written after surveying live state, and isn't part of the plan for phases 1, 2, and 4. It follows
+infra-brain standards and goes through infraops. Retiring the Hetzner host fits in the same session.
 
 ### Phase 4: rewrite current-address records to role names (optional)
 
@@ -173,8 +162,9 @@ runs.
 - The roles are names, not providers: `prod-vps`, not `ovh-vps`.
 - The registry lives in Infra Brain.
 - A retired address holds a record for review. A current address only gets a hint.
-- Phase 3 runs in its own infrastructure session.
+- Phase 3 runs in its own infrastructure session. This design states only its principle.
 - The address list is served without a key, on one read-only path.
+- The brains store no DNS names. DNS is the source of truth for names and is read live.
 
 ## Left to the builder
 
