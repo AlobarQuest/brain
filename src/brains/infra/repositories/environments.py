@@ -6,9 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.brains.infra.models import Environment
 from src.core.address_guard import AddressBook, book_from_payload, payload_from_environments
 
-# Current-side match strings: a change to any of these means the role moved hosts.
-# (A hostname edit alone is not a move.)
+# Current-side match strings: changing or removing one that had a value means the role moved
+# hosts. Adding one that was absent is not a move, nor is a hostname edit.
 _MATCH_KEYS = ("ipv4", "ipv6", "tailnet_ip")
+
+
+def _moved(old: dict, new: dict) -> bool:
+    return any(old.get(k) and old.get(k) != new.get(k) for k in _MATCH_KEYS)
 
 
 class EnvironmentRepository:
@@ -31,8 +35,8 @@ class EnvironmentRepository:
         self, role: str, fields: dict, previous: list[dict] | None, today: date
     ) -> tuple[Environment, bool]:
         """Create or update a role. An explicit ``previous`` replaces the stored list. When it is
-        omitted and a match string changed, the old host is appended to ``previous`` (rotation).
-        Returns the row and whether it rotated."""
+        omitted and a match string that had a value changed or was removed, the old host is
+        appended to ``previous`` (rotation). Returns the row and whether it rotated."""
         env = await self.get(role)
         if env is None:
             env = Environment(role=role, previous=previous or [], **fields)
@@ -43,7 +47,7 @@ class EnvironmentRepository:
         rotated = False
         if previous is not None:
             new_previous = previous
-        elif any(env.addresses.get(k) != fields["addresses"].get(k) for k in _MATCH_KEYS):
+        elif _moved(env.addresses, fields["addresses"]):
             rotated = True
             new_previous = [
                 *env.previous,

@@ -264,3 +264,24 @@ async def test_set_environment_accepts_valid_ips(mcp):
     addresses = {"ipv4": "40.160.102.182", "ipv6": "2001:db8::a", "tailnet_ip": "100.92.138.19"}
     body = await _call(mcp, "set_environment", **_set_args(addresses=addresses))
     assert body["addresses"] == addresses
+
+
+async def test_adding_a_current_key_does_not_rotate(mcp):
+    await _call(mcp, "set_environment", **_set_args())
+    body = await _call(
+        mcp, "set_environment", **_set_args(addresses=dict(ADDRS, ipv6="2001:db8::a"))
+    )
+    assert body["rotated"] is False
+    assert body["previous"] == []
+    assert body["addresses"]["ipv6"] == "2001:db8::a"
+
+
+async def test_removing_a_current_key_rotates(mcp):
+    await _call(mcp, "set_environment", **_set_args())
+    without_tailnet_ip = {k: v for k, v in ADDRS.items() if k != "tailnet_ip"}
+    body = await _call(mcp, "set_environment", **_set_args(addresses=without_tailnet_ip))
+    assert body["rotated"] is True
+    assert body["previous"] == [
+        {"addresses": ADDRS, "provider": "ovh", "until": date.today().isoformat()}
+    ]
+    assert await _retired() == ["100.92.138.19"]

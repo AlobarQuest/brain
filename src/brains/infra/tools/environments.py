@@ -141,11 +141,12 @@ def register_environment_tools(mcp: FastMCP) -> None:
         updated_by: str = "devon",
     ) -> dict:
         """Create or update an environment role. APPROVER KEY ONLY. addresses may hold only
-        ipv4 and tailnet_ip (IPv4 addresses), ipv6 (an IPv6 address), tailnet_node (a string) and
-        hostnames (a list of strings); all optional. tailnet_node and each hostname must be at least 4 characters and
-        contain a digit, '.', ':' or '-'. current_since is an ISO date. When previous is omitted
-        and ipv4/ipv6/tailnet_ip changed, the old host is appended to previous (until = today);
-        pass previous to replace the list explicitly. Each previous entry is
+        ipv4 and tailnet_ip (IPv4 addresses), ipv6 (an IPv6 address), tailnet_node (a string)
+        and hostnames (a list of strings); all optional. tailnet_node and each hostname must be
+        at least 4 characters and contain a digit, '.', ':' or '-'. current_since is an ISO date.
+        When previous is omitted and an ipv4/ipv6/tailnet_ip that had a value changed or was
+        removed, the old host is appended to previous (until = today); adding one that was
+        absent does not rotate. Pass previous to replace the list explicitly. Each previous entry is
         {addresses, provider, until}. Store no secrets."""
         if not require_approver():
             return {
