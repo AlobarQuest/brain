@@ -43,7 +43,7 @@ def test_scan_current_ip_is_hint_only():
     hits = scan(["host 40.160.102.182"], book())
     assert hits.current == (("40.160.102.182", "prod-vps"),)
     assert not hits.any_retired
-    assert "prod-vps" in guard_fields(hits)["hint"]
+    assert "prod-vps" in guard_fields(hits, held=False)["hint"]
 
 
 def test_provider_word_never_matches():
@@ -98,12 +98,20 @@ def test_hold_replaces_overlap_kind():
     assert "retired address of prod-vps" in data["conflict_note"]
 
 
+def test_guard_fields_note_claims_hold_only_when_held():
+    hits = scan(["178.156.247.239"], book())
+    assert "held" in guard_fields(hits, held=True)["note"]
+    unheld = guard_fields(hits, held=False)["note"]
+    assert "held" not in unheld
+    assert unheld == "names 178.156.247.239, a retired address of prod-vps"
+
+
 def test_guard_fields_and_refusal():
     hits = scan(["178.156.247.239"], book())
-    fields = guard_fields(hits)
+    fields = guard_fields(hits, held=True)
     assert fields["retired_address"] == [{"match": "178.156.247.239", "role": "prod-vps"}]
-    assert "note" in fields
-    assert guard_fields(AddressHits((), ())) == {}
+    assert fields["note"].endswith("the record is held as proposed")
+    assert guard_fields(AddressHits((), ()), held=True) == {}
     r = refusal(hits)
     assert r["error"] == "retired_address"
     assert r["matches"] == fields["retired_address"]

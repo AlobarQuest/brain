@@ -17,7 +17,9 @@ from src.core.governance import (
 async def _guard(session, texts: list[str | None]) -> dict:
     """Address-guard fields for a REST proposal. Proposals are already held as proposed, so
     this only reports: no conflict_kind is set for a retired address."""
-    return guard_fields(scan(texts, await EnvironmentRepository(session).address_book()))
+    return guard_fields(
+        scan(texts, await EnvironmentRepository(session).address_book()), held=False
+    )
 
 
 async def propose_lesson(

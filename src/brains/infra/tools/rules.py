@@ -121,7 +121,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "category": r.category,
                 "status": r.status,
                 "conflict": data.get("conflict_kind"),
-                **guard_fields(hits),
+                **guard_fields(hits, held=True),
             }
 
     @mcp.tool()
@@ -183,7 +183,7 @@ def register_rule_tools(mcp: FastMCP) -> None:
                 "id": updated.id,
                 "severity": updated.severity,
                 "category": updated.category,
-                **{k: v for k, v in guard_fields(hits).items() if k == "hint"},
+                **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
             }
 
     @mcp.tool()

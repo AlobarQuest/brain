@@ -163,7 +163,7 @@ def register_app_tools(mcp: FastMCP) -> None:
             "name": app.name,
             "status": app.status,
             "updated": list(fields.keys()),
-            **{k: v for k, v in guard_fields(hits).items() if k == "hint"},
+            **{k: v for k, v in guard_fields(hits, held=False).items() if k == "hint"},
         }
 
     @mcp.tool()

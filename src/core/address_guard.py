@@ -132,12 +132,17 @@ def _matches(pairs: tuple[tuple[str, str], ...]) -> list[dict]:
     return [{"match": m, "role": role} for m, role in pairs]
 
 
-def guard_fields(hits: AddressHits) -> dict:
-    """Fields to merge into a tool response; empty when nothing matched."""
+def guard_fields(hits: AddressHits, *, held: bool) -> dict:
+    """Fields to merge into a tool response; empty when nothing matched.
+
+    `held` is True only when the caller held the new record as proposed
+    (`hold_for_retired`); the note claims a hold only then."""
     fields: dict[str, Any] = {}
     if hits.any_retired:
         fields["retired_address"] = _matches(hits.retired)
-        fields["note"] = f"{retired_note(hits)}; the record is held as proposed"
+        fields["note"] = (
+            f"{retired_note(hits)}; the record is held as proposed" if held else retired_note(hits)
+        )
     if hits.current:
         match, role = hits.current[0]
         fields["hint"] = (

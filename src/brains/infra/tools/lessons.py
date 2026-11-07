@@ -95,5 +95,5 @@ def register_lesson_tools(mcp: FastMCP) -> None:
                 "id": lesson.id,
                 "title": lesson.title,
                 "status": lesson.status,
-                **guard_fields(hits),
+                **guard_fields(hits, held=True),
             }

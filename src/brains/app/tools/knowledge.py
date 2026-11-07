@@ -221,13 +221,14 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             "metadata_summary": metadata,
             "status": chunk.status,
             "conflict": flag.kind if flag else None,
-            **guard_fields(hits),
+            **guard_fields(hits, held=True),
         }
         if supersedes_id and hits.any_retired:
-            response["note"] += (
-                f"; the old chunk {supersedes_id} stays approved: the reviewer "
+            held_supersede = (
+                f"the old chunk {supersedes_id} stays approved: the reviewer "
                 "deprecates the old chunk on approval"
             )
+            response["note"] = "; ".join(filter(None, [response.get("note"), held_supersede]))
         return response
 
     @mcp.tool()
@@ -366,7 +367,7 @@ def register_knowledge_tools(mcp: FastMCP) -> None:
             "app_slug": slug,
             "onboarding_status": "running",
             "message": "Onboarding started in the background. Poll onboard_status(slug) for completion.",
-            **guard_fields(hits),
+            **guard_fields(hits, held=False),
         }
 
     @mcp.tool()

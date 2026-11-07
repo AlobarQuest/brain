@@ -79,6 +79,7 @@ async def test_capture_retired_held_with_approver_and_auto_approve(
     assert body["status"] == "proposed"
     assert body["retired_address"] == [{"match": RETIRED, "role": "prod-vps"}]
     assert "prod-vps" in body["note"] and RETIRED in body["note"]
+    assert "held as proposed" in body["note"]
     async with app_db() as session:
         row = await session.get(AppKnowledge, uuid.UUID(body["id"]))
         assert row.status == "proposed"
@@ -219,6 +220,7 @@ async def test_onboard_app_retired_hint_only(monkeypatch):
     )
     assert out["onboarding_status"] == "running"
     assert out["retired_address"] == [{"match": RETIRED, "role": "prod-vps"}]
+    assert "prod-vps" in out["note"] and "held" not in out["note"]
     for task in list(knowledge_tools_module._background_tasks):
         await task
     assert len(scheduled) == 1
