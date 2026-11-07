@@ -99,6 +99,11 @@ async def test_fetch_bad_json_returns_none(clock, caplog):
         {"roles": [1]},
         {"roles": [{"current": ["a"]}]},
         {"roles": [{"role": "r", "current": 5}]},
+        {"roles": [{"role": "r", "retired": "1.2.3.4"}]},
+        {"roles": [{"role": "r", "current": "1.2.3.4"}]},
+        {"roles": [{"role": "r", "current": [5]}]},
+        {"roles": [{"role": "r", "retired": [None]}]},
+        {"roles": [{"role": 7, "current": ["a"]}]},
     ],
 )
 @respx.mock
@@ -128,3 +133,10 @@ async def test_reset_address_cache_forces_refetch(clock):
     address_guard.reset_address_cache()
     await fetch_address_book()
     assert route.call_count == 2
+
+
+async def test_malformed_infra_brain_url_returns_none(clock, caplog, monkeypatch):
+    monkeypatch.setenv("INFRA_BRAIN_URL", "http://host:notaport")
+    with caplog.at_level(logging.WARNING, logger=address_guard.logger.name):
+        assert await fetch_address_book() is None
+    assert "address guard skipped" in caplog.text

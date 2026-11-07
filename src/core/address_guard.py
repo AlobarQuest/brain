@@ -160,6 +160,19 @@ def reset_address_cache() -> None:
     _cache = None
 
 
+def _validate_payload(payload: Any) -> None:
+    """Raise ValueError unless payload is `{"roles": [{"role": str, "current"?: [str], ...}]}`."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("roles"), list):
+        raise ValueError("payload has no 'roles' list")
+    for entry in payload["roles"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("role"), str):
+            raise ValueError("roles entry is not an object with a string 'role'")
+        for key in ("current", "retired"):
+            values = entry.get(key, [])
+            if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+                raise ValueError(f"roles entry '{key}' is not a list of strings")
+
+
 async def _fetch_book() -> AddressBook:
     settings = get_settings()
     url = f"{settings.infra_brain_url.rstrip('/')}/api/environments/addresses"
@@ -168,8 +181,7 @@ async def _fetch_book() -> AddressBook:
         response = await client.get(url, headers=headers)
     response.raise_for_status()
     payload = response.json()
-    if not isinstance(payload, dict) or not isinstance(payload.get("roles"), list):
-        raise ValueError("payload has no 'roles' list")
+    _validate_payload(payload)
     return book_from_payload(payload)
 
 
@@ -181,7 +193,7 @@ async def fetch_address_book() -> AddressBook | None:
     try:
         book: AddressBook | None = await _fetch_book()
         ttl = CACHE_TTL_S
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError) as exc:
         logger.warning("address guard skipped: %s", exc)
         book, ttl = None, FAILURE_TTL_S
     _cache = (_clock() + ttl, book)
