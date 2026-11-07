@@ -280,6 +280,7 @@ async def env_client(monkeypatch):
         await conn.run_sync(Environment.__table__.create)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
+    await get_engine().dispose()
 
 
 async def _seed_env():
